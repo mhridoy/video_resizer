@@ -1,7 +1,7 @@
 node_modules/
 dist/
 public/ffmpeg/
+public/downloads/
 release/
 *.log
 .DS_Store
-

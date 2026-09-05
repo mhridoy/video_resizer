@@ -24,6 +24,8 @@ The web app processes locally in your browser: no video upload, account, or serv
 
 These links become available after the first successful build and release. Every successful main-branch build publishes a release with these stable asset names.
 
+The website can also provide a portable Windows EXE directly, independently of GitHub Releases. To include a locally built EXE, set `DESKTOP_ARTIFACT` to its absolute path while running `npm run build`. The build splits it into static-host-friendly chunks, and the download button reconstructs and verifies its SHA-256 before saving. Without a bundled artifact, the button opens the GitHub Releases page. Portable builds run without an installer.
+
 For individual build artifacts, open [Build desktop apps](https://github.com/mhridoy/video_resizer/actions/workflows/build.yml), choose the latest successful run, and download an artifact at the bottom:
 
 | Artifact | Contents |
