@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Resize and compress a whole folder of videos. Private processing, simple presets, and batch progress." />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'" />
+  <title>Video Resizer — batch studio</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div class="app">
+    <header><a class="brand" href="./" aria-label="Video Resizer home"><span class="brand-icon">↘</span> VIDEO<span>RESIZER</span></a><div class="header-actions"><a id="download-windows" class="secondary" href="https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe">Download Windows EXE ↓</a><span class="mode" id="mode">BROWSER EDITION</span></div></header>
+    <main>
+      <div class="heading"><div><div class="eyebrow">YOUR VIDEOS. A LITTLE LIGHTER.</div><h1>Big folder.<br><span>Smaller videos.</span></h1><p id="intro">Choose a folder. Set your size. We’ll take it from here.</p></div><div class="privacy"><span>◈</span><div>Stays on your device<small>Your videos are never uploaded.</small></div></div></div>
+      <div class="workspace">
+        <section class="queue-panel" aria-label="Video queue">
+          <div class="panel-heading"><h2>Your videos <span id="count">0</span></h2><button class="text-button" id="clear" disabled>Clear all</button></div>
+          <div id="dropzone" class="dropzone"><div class="folder-icon">↳</div><h3>One folder. Every video.</h3><p>Includes videos in subfolders.</p><div class="pick-actions"><button class="primary" id="pick-folder">Choose folder <span>＋</span></button><button class="secondary" id="pick-files">Select videos</button></div><small id="drop-hint">Or drop video files here · MP4, MOV, MKV, WebM & more</small></div>
+          <input id="folder-input" type="file" webkitdirectory multiple hidden /><input id="files-input" type="file" multiple accept="video/*,.mkv,.mts,.m2ts,.avi,.wmv,.flv" hidden />
+          <div id="queue" class="queue"></div>
+          <div class="queue-footer"><span id="total-size">No videos selected</span><span>Originals stay untouched</span></div>
+        </section>
+        <aside class="settings" aria-label="Resize settings">
+          <div class="panel-heading"><h2>Make it yours</h2><span class="step">01 / 02</span></div>
+          <label class="field-label" for="resolution">Maximum resolution</label>
+          <select id="resolution"><option value="1080">1080p · Full HD</option><option value="720">720p · HD</option><option value="480">480p · Compact</option><option value="original">Keep original dimensions</option></select>
+          <p class="help">Keeps the aspect ratio. Never enlarges smaller videos.</p>
+          <fieldset><legend>What matters most?</legend><label class="profile"><input type="radio" name="profile" value="balanced" checked><span><strong>Balanced</strong><small>Good quality. Faster processing.</small></span><span class="recommend">BEST FIT</span></label><label class="profile"><input type="radio" name="profile" value="smaller"><span><strong>Smallest file</strong><small>More compression, less detail.</small></span></label><label class="profile"><input type="radio" name="profile" value="quality"><span><strong>Higher quality</strong><small>More detail, larger files.</small></span></label></fieldset>
+          <div class="format"><span>OUTPUT FORMAT</span><strong>MP4 <small>H.264 + AAC</small></strong></div>
+          <div id="native-options" hidden><label class="check"><input type="checkbox" id="hardware" checked> Use hardware acceleration when available</label><button class="secondary full" id="output">Choose output folder</button><p class="help" id="output-label">Default: a new folder in Videos</p></div>
+          <div id="web-note" class="web-note">Best for short clips. Large folders run faster in the Windows or macOS app. Download each result before clearing the queue.</div>
+          <button class="secondary full" id="save-web-folder" hidden>Save automatically to folder</button>
+          <button class="primary full start" id="start" disabled>Optimize videos <span>↗</span></button><button class="secondary full" id="cancel" hidden>Cancel batch</button><button class="secondary full" id="open-output" hidden>Open output folder ↗</button>
+          <p class="help center">Processing time depends on your videos and device.</p>
+        </aside>
+      </div>
+      <section class="batch-summary" aria-label="Batch progress"><div><span class="eyebrow">BATCH PROGRESS</span><strong id="batch-status">Ready when you are.</strong></div><div class="summary-number"><span id="done-count">0 / 0</span><small>videos finished</small></div><div class="summary-number"><span id="saved">—</span><small id="saved-label">space saved</small></div><progress id="overall" value="0" max="100" aria-label="Overall progress"></progress></section>
+      <p id="notice" role="status" aria-live="polite"></p>
+    </main>
+    <footer><span>LESS SPACE. SAME STORIES.</span><span>Made for your everyday videos.</span></footer>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
