@@ -2,6 +2,8 @@
 
 Batch resize and compress videos on **Windows and the web**. Choose an entire folder, including subfolders, and convert every supported video to MP4. Originals are never changed.
 
+Web app: https://video-resizer-eta.vercel.app/
+
 ## Use the app
 
 1. Choose a folder or select multiple videos.
@@ -72,3 +74,7 @@ See [THIRD_PARTY.md](THIRD_PARTY.md) for FFmpeg and dependency notices.
 ## Vercel hosting
 
 Import this repository into Vercel. The included `vercel.json` builds the Vite web app to `dist/`, skipping desktop binary downloads during installation. Video processing stays on the user’s device; no conversion server is required. Connect the repository in Vercel for automatic deployments after future pushes.
+
+### Local installer fallback
+
+If hosted Actions cannot run, prepare `release/win-unpacked` with electron-builder on a build machine, install NSIS 3, and run `node scripts/build-local-installer.mjs`. Set `NSIS_BINARY` and `NSISDIR` if NSIS is not installed globally. This produces an unsigned per-user Setup EXE with Start Menu shortcuts and an uninstaller; it removes only packaged files and leaves user-created videos intact.
