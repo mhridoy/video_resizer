@@ -1,4 +1,4 @@
-name: Build desktop apps
+name: Build Windows installer and web
 on:
   push:
     branches: [main]
@@ -8,17 +8,8 @@ permissions:
   contents: read
 jobs:
   desktop:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            label: Windows-x64
-          - os: macos-15
-            label: macOS-Apple-Silicon
-          - os: macos-15-intel
-            label: macOS-Intel
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,11 +23,9 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
-          name: Video-Resizer-${{ matrix.label }}
+          name: Video-Resizer-Windows-x64
           path: |
             release/*.exe
-            release/*.dmg
-            release/*.zip
           if-no-files-found: error
           retention-days: 30
   web:
@@ -47,7 +36,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:
@@ -55,7 +44,7 @@ jobs:
           path: dist/
           retention-days: 30
   release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: [desktop, web]
     runs-on: ubuntu-latest
     permissions:
@@ -63,20 +52,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: Video-Resizer-*
+          pattern: Video-Resizer-Windows-*
           path: artifacts
       - uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const tag = `v1.0.${context.runNumber}`;
+            const tag = `v1.0.${context.runNumber}-${context.runAttempt}`;
             const { data: release } = await github.rest.repos.createRelease({
               ...context.repo,
               tag_name: tag,
               target_commitish: context.sha,
               name: `Video Resizer ${tag}`,
-              body: 'Download the Windows Setup EXE, portable EXE, or the macOS DMG for your processor. These initial builds are unsigned; your OS may show an unknown-publisher warning. All processing happens on your device.',
+              body: 'Download the Windows Setup EXE to install, or the portable EXE to run without installation. These initial builds are unsigned; your OS may show an unknown-publisher warning. All processing happens on your device.',
               draft: true,
               prerelease: false
             });
@@ -84,7 +73,7 @@ jobs:
               for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
                 const file = path.join(dir, entry.name);
                 if (entry.isDirectory()) await upload(file);
-                else if (/\.(exe|dmg|zip)$/.test(entry.name)) {
+                else if (/\.exe$/.test(entry.name)) {
                   await github.rest.repos.uploadReleaseAsset({
                     ...context.repo, release_id: release.id, name: entry.name,
                     data: fs.readFileSync(file)

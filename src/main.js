@@ -48,7 +48,7 @@ function addFiles(files) {
   for (const input of files) {
     const name = native ? input.name : input.webkitRelativePath || input.relativeName || input.name;
     if (!isVideo(name)) { ignored++; continue; }
-    if (queue.some(f => f.name === name && f.size === input.size)) continue;
+    if (queue.some(f => native ? f.id === input.id : f.name === name && f.size === input.size)) continue;
     const file = { id: native ? input.id : crypto.randomUUID(), name, size: input.size, file: native ? undefined : input, status: 'queued', progress: 0 };
     queue.push(file); updateRow(file);
   }
@@ -80,38 +80,6 @@ if (!native && 'showDirectoryPicker' in window) {
   $('save-web-folder').onclick = async () => {
     try { webDirectory = await window.showDirectoryPicker({ mode: 'readwrite' }); $('save-web-folder').textContent = `Save to: ${webDirectory.name}`; notice('Each batch creates a new output subfolder. Results will save automatically.'); }
     catch (error) { if (error.name !== 'AbortError') notice(error.message); }
-  };
-}
-if (!native) {
-  $('download-windows').onclick = async event => {
-    event.preventDefault();
-    const button = $('download-windows');
-    if (button.getAttribute('aria-busy') === 'true') return;
-    button.setAttribute('aria-busy', 'true');
-    try {
-      const base = new URL('./downloads/', document.baseURI);
-      const response = await fetch(new URL('windows.json', base));
-      if (!response.ok) { window.location.href = 'https://github.com/mhridoy/video_resizer/releases'; return; }
-      const manifest = await response.json();
-      if (!Array.isArray(manifest.chunks)) throw new Error('The Windows download is not available yet.');
-      const parts = [];
-      for (const [index, name] of manifest.chunks.entries()) {
-        button.textContent = `Downloading EXE · ${Math.round(index / manifest.chunks.length * 100)}%`;
-        const part = await fetch(new URL(name, base));
-        if (!part.ok) throw new Error('Download interrupted. Please retry.');
-        parts.push(await part.arrayBuffer());
-      }
-      const blob = new Blob(parts, { type: 'application/octet-stream' });
-      if (blob.size !== manifest.size) throw new Error('Incomplete download. Please retry.');
-      const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
-      const hex = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-      if (hex !== manifest.sha256) throw new Error('Download verification failed. Please retry.');
-      const url = URL.createObjectURL(blob); const link = document.createElement('a');
-      link.href = url; link.download = manifest.filename; link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 120000);
-      notice('Windows portable EXE downloaded. Open it, choose your video folder, and click Optimize. This initial build is unsigned; Windows may show an unknown-publisher warning.');
-    } catch (error) { notice(error.message); }
-    finally { button.removeAttribute('aria-busy'); button.textContent = 'Download Windows EXE ↓'; }
   };
 }
 for (const kind of ['folder', 'files']) {

@@ -5,3 +5,5 @@ public/downloads/
 release/
 *.log
 .DS_Store
+
+.vercel/
