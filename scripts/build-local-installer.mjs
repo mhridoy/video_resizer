@@ -3,7 +3,7 @@ import { readdir, mkdir, writeFile, stat } from 'node:fs/promises';
 import { resolve, relative, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const root = resolve('release/win-unpacked');
-await stat(resolve(root, 'Video Resizer.exe'));
+await stat(resolve(root, 'Binary Beat.exe'));
 const quote = s => s.replaceAll('$', '$$').replaceAll('"', '$\\"');
 const files = [], dirs = [];
 async function walk(dir) {
@@ -36,7 +36,7 @@ Section "Video Resizer"
  File /r "${quote(root)}/*"
  WriteUninstaller "$INSTDIR\\Uninstall.exe"
  CreateDirectory "$SMPROGRAMS\\Video Resizer"
- CreateShortCut "$SMPROGRAMS\\Video Resizer\\Video Resizer.lnk" "$INSTDIR\\Video Resizer.exe"
+ CreateShortCut "$SMPROGRAMS\\Video Resizer\\Video Resizer.lnk" "$INSTDIR\\Binary Beat.exe"
  CreateShortCut "$SMPROGRAMS\\Video Resizer\\Uninstall.lnk" "$INSTDIR\\Uninstall.exe"
  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VideoResizer" "DisplayName" "Video Resizer"
  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VideoResizer" "DisplayVersion" "1.0.0"

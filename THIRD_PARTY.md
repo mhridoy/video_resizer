@@ -9,3 +9,5 @@ The MIT license covers the original application source only. Dependencies and bu
 - FFmpeg license/source information: https://ffmpeg.org/legal.html and https://ffmpeg.org/download.html.
 
 FFmpeg binaries and WASM cores are not relicensed as MIT by this application. Preserve bundled licenses and corresponding-source access when redistributing them. The package lockfile records exact dependency versions.
+
+PDF editing uses pdf-lib (MIT). PDF rendering uses Mozilla PDF.js / pdfjs-dist (Apache-2.0). Their package license files are included with dependencies.

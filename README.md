@@ -1,4 +1,4 @@
-# Video Resizer
+# Binary Beat — Free File Tools
 
 Batch resize and compress videos on **Windows and the web**. Choose an entire folder, including subfolders, and convert every supported video to MP4. Originals are never changed.
 
@@ -78,3 +78,9 @@ Import this repository into Vercel. The included `vercel.json` builds the Vite w
 ### Local installer fallback
 
 If hosted Actions cannot run, prepare `release/win-unpacked` with electron-builder on a build machine, install NSIS 3, and run `node scripts/build-local-installer.mjs`. Set `NSIS_BINARY` and `NSISDIR` if NSIS is not installed globally. This produces an unsigned per-user Setup EXE with Start Menu shortcuts and an uninstaller; it removes only packaged files and leaves user-created videos intact.
+
+## Image and PDF tools
+
+Binary Beat is free for everyone. Donations are not enabled yet. Use the tool cards to choose video resize, batch image resize (JPG/PNG/WebP), PDF merge, split or compression. All processing stays on your device, in the web and Windows apps.
+
+PDF merge respects the displayed file order. Split accepts ranges such as `1-3,5;6-8`; blank ranges create one file per page. Quality-preserving PDF compression optimizes structure without downsampling images. Smaller-file mode renders pages as JPEGs (up to 100 DPI / 2400 pixels), losing selectable text, links, forms and signatures. It keeps the original if compression makes it larger. Merge/split are intended for ordinary documents; forms and bookmarks may not survive page copying. Password-protected files must be unlocked first. Image exports remove metadata and preserve aspect ratio without upscaling.

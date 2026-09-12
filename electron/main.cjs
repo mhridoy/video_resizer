@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
   handle('open-output', async () => { if (lastOutput) { const error = await shell.openPath(lastOutput); if (error) throw new Error(error); } });
   handle('clear-input', () => { if (!engine.running) selected.clear(); });
   function createWindow() {
-    win = new BrowserWindow({ width: 1240, height: 840, minWidth: 720, minHeight: 600, backgroundColor: '#101217', title: 'Video Resizer', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    win = new BrowserWindow({ width: 1240, height: 840, minWidth: 720, minHeight: 600, backgroundColor: '#101217', title: 'Binary Beat', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.on('close', event => {

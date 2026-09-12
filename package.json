@@ -1,8 +1,8 @@
 {
   "name": "video-resizer",
-  "version": "1.0.0",
-  "description": "Private batch video resizing for Windows and the web",
-  "author": "Moshiur Rahman",
+  "version": "1.1.0",
+  "description": "Free video, image and PDF tools by Binary Beat",
+  "author": "Binary Beat",
   "license": "MIT",
   "type": "module",
   "main": "electron/main.cjs",
@@ -14,9 +14,11 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@ffmpeg/ffmpeg": "0.12.15",
     "@ffmpeg/core": "0.12.10",
-    "ffmpeg-static": "5.2.0"
+    "@ffmpeg/ffmpeg": "0.12.15",
+    "ffmpeg-static": "5.2.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.3.289"
   },
   "devDependencies": {
     "electron": "^40.0.0",
@@ -25,7 +27,7 @@
   },
   "build": {
     "appId": "org.binarybear.videoresizer",
-    "productName": "Video Resizer",
+    "productName": "Binary Beat",
     "files": [
       "dist/**/*",
       "electron/**/*",

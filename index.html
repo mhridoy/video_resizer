@@ -3,16 +3,43 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Resize and compress a whole folder of videos. Private processing, simple presets, and batch progress." />
+  <meta name="description" content="Free video, image and PDF tools by Binary Beat. Resize images and videos, merge, split and compress PDFs locally." />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'" />
-  <title>Video Resizer — batch studio</title>
+  <title>Binary Beat — Free File Tools</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 </head>
 <body>
   <div class="app">
-    <header><a class="brand" href="./" aria-label="Video Resizer home"><span class="brand-icon">↘</span> VIDEO<span>RESIZER</span></a><div class="header-actions"><a id="download-windows" class="secondary" href="https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe">Download Windows installer ↓</a><span class="mode" id="mode">BROWSER EDITION</span></div></header>
+    <header><a class="brand" href="./" aria-label="Binary Beat home"><span class="brand-icon">↘</span> BINARY<span>BEAT</span></a><div class="header-actions"><a id="download-windows" class="secondary" href="https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe">Download Windows installer ↓</a><span class="mode" id="mode">BROWSER EDITION</span></div></header>
     <main>
-      <div class="heading"><div><div class="eyebrow">YOUR VIDEOS. A LITTLE LIGHTER.</div><h1>Big folder.<br><span>Smaller videos.</span></h1><p id="intro">Choose a folder. Set your size. We’ll take it from here.</p></div><div class="privacy"><span>◈</span><div>Stays on your device<small>Your videos are never uploaded.</small></div></div></div>
+      <section class="toolkit-intro"><div class="eyebrow">BINARY BEAT · FREE FOR EVERYONE</div><h1>Everyday files.<br><span>Made simple.</span></h1><p>Video, image and PDF tools. No signup. No upload. All on your device.</p></section>
+      <nav class="tool-nav" aria-label="Choose a tool">
+        <button data-tool="video" aria-pressed="true"><strong>↘ Video resize</strong><small>Optimize a whole folder</small></button>
+        <button data-tool="image" aria-pressed="false"><strong>▧ Image resize</strong><small>Resize JPG, PNG & WebP</small></button>
+        <button data-tool="merge" aria-pressed="false"><strong>＋ Merge PDF</strong><small>Combine documents in order</small></button>
+        <button data-tool="split" aria-pressed="false"><strong>⇥ Split PDF</strong><small>Extract pages & ranges</small></button>
+        <button data-tool="compress" aria-pressed="false"><strong>↓ Compress PDF</strong><small>Reduce your document size</small></button>
+      </nav>
+      <section id="tools-panel" class="settings" hidden>
+        <div class="panel-heading"><h2 id="tool-title">Image resize</h2><span class="recommend">100% FREE</span></div>
+        <p id="tool-help" class="help"></p>
+        <label class="tool-drop">Select your files<input id="tool-input" type="file" multiple accept="image/jpeg,image/png,image/webp"></label>
+        <p class="help">Up to 200 MB per file / 500 MB per batch. Files stay on this device.</p>
+        <div id="tool-files"></div>
+        <div id="image-settings" class="tool-controls">
+          <label>Maximum width (px)<input id="image-width" type="number" value="1920" min="1" max="8192"></label>
+          <label>Maximum height (px)<input id="image-height" type="number" value="1080" min="1" max="8192"></label>
+          <label>Output format<select id="image-format"><option value="image/jpeg">JPG</option><option value="image/png">PNG — transparency</option><option value="image/webp">WebP</option></select></label>
+          <label>JPG / WebP quality<input id="image-quality" type="range" min="20" max="100" value="80"></label>
+          <p class="help">Keeps proportions and never enlarges images. Image metadata is removed.</p>
+        </div>
+        <div id="split-settings" hidden><label class="field-label" for="pdf-ranges">Page ranges (optional)</label><input id="pdf-ranges" placeholder="1-3,5; 6-8"><p class="help">Each semicolon starts a new output file. Blank = one PDF per page.</p></div>
+        <div id="compress-settings" hidden><label class="field-label" for="pdf-compression">Compression mode</label><select id="pdf-compression"><option value="lossless">Keep quality — structural compression</option><option value="scan">Smaller file — render pages as images</option></select><p class="help">Image mode uses 100 DPI JPEG pages. Text becomes non-selectable; links, forms and signatures are removed. Check readability before sharing.</p></div>
+        <div class="pick-actions"><button id="tool-run" class="primary" disabled>Process files</button><button id="tool-clear" class="secondary">Clear</button></div>
+        <p id="tool-status" role="status" aria-live="polite"></p><div id="tool-results" aria-label="Download results"></div>
+      </section>
+      <div id="video-panel">
+      <div class="heading video-heading"><div><div class="eyebrow">YOUR VIDEOS. A LITTLE LIGHTER.</div><h1>Big folder.<br><span>Smaller videos.</span></h1><p id="intro">Choose a folder. Set your size. We’ll take it from here.</p></div><div class="privacy"><span>◈</span><div>Stays on your device<small>Your videos are never uploaded.</small></div></div></div>
       <div class="workspace">
         <section class="queue-panel" aria-label="Video queue">
           <div class="panel-heading"><h2>Your videos <span id="count">0</span></h2><button class="text-button" id="clear" disabled>Clear all</button></div>
@@ -37,9 +64,11 @@
       </div>
       <section class="batch-summary" aria-label="Batch progress"><div><span class="eyebrow">BATCH PROGRESS</span><strong id="batch-status">Ready when you are.</strong></div><div class="summary-number"><span id="done-count">0 / 0</span><small>videos finished</small></div><div class="summary-number"><span id="saved">—</span><small id="saved-label">space saved</small></div><progress id="overall" value="0" max="100" aria-label="Overall progress"></progress></section>
       <p id="notice" role="status" aria-live="polite"></p>
+      </div>
     </main>
-    <footer><span>LESS SPACE. SAME STORIES.</span><span>Made for your everyday videos.</span></footer>
+    <footer><span>© Binary Beat · Free for everyone</span><span>Built to help. Donations coming later.</span></footer>
   </div>
   <script type="module" src="/src/main.js"></script>
+  <script type="module" src="/src/toolkit.js"></script>
 </body>
 </html>
