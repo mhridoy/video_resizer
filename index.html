@@ -3,72 +3,59 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Free video, image and PDF tools by Binary Beat. Resize images and videos, merge, split and compress PDFs locally." />
+  <meta name="description" content="A little less file hassle. Free, private video, image and PDF tools. Compress, resize, trim, convert and organize files right on your device." />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'" />
-  <title>Binary Beat — Free File Tools</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <meta name="theme-color" content="#f8f9fc" />
+  <title>Binary Beat — A little less file hassle</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
 </head>
 <body>
-  <div class="app">
-    <header><a class="brand" href="./" aria-label="Binary Beat home"><span class="brand-icon">↘</span> BINARY<span>BEAT</span></a><div class="header-actions"><a id="download-windows" class="secondary" href="https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe">Download Windows installer ↓</a><span class="mode" id="mode">BROWSER EDITION</span></div></header>
-    <main>
-      <section class="toolkit-intro"><div class="eyebrow">BINARY BEAT · FREE FOR EVERYONE</div><h1>Everyday files.<br><span>Made simple.</span></h1><p>Video, image and PDF tools. No signup. No upload. All on your device.</p></section>
-      <nav class="tool-nav" aria-label="Choose a tool">
-        <button data-tool="video" aria-pressed="true"><strong>↘ Video resize</strong><small>Optimize a whole folder</small></button>
-        <button data-tool="image" aria-pressed="false"><strong>▧ Image resize</strong><small>Resize JPG, PNG & WebP</small></button>
-        <button data-tool="merge" aria-pressed="false"><strong>＋ Merge PDF</strong><small>Combine documents in order</small></button>
-        <button data-tool="split" aria-pressed="false"><strong>⇥ Split PDF</strong><small>Extract pages & ranges</small></button>
-        <button data-tool="compress" aria-pressed="false"><strong>↓ Compress PDF</strong><small>Reduce your document size</small></button>
-      </nav>
-      <section id="tools-panel" class="settings" hidden>
-        <div class="panel-heading"><h2 id="tool-title">Image resize</h2><span class="recommend">100% FREE</span></div>
-        <p id="tool-help" class="help"></p>
-        <label class="tool-drop">Select your files<input id="tool-input" type="file" multiple accept="image/jpeg,image/png,image/webp"></label>
-        <p class="help">Up to 200 MB per file / 500 MB per batch. Files stay on this device.</p>
-        <div id="tool-files"></div>
-        <div id="image-settings" class="tool-controls">
-          <label>Maximum width (px)<input id="image-width" type="number" value="1920" min="1" max="8192"></label>
-          <label>Maximum height (px)<input id="image-height" type="number" value="1080" min="1" max="8192"></label>
-          <label>Output format<select id="image-format"><option value="image/jpeg">JPG</option><option value="image/png">PNG — transparency</option><option value="image/webp">WebP</option></select></label>
-          <label>JPG / WebP quality<input id="image-quality" type="range" min="20" max="100" value="80"></label>
-          <p class="help">Keeps proportions and never enlarges images. Image metadata is removed.</p>
-        </div>
-        <div id="split-settings" hidden><label class="field-label" for="pdf-ranges">Page ranges (optional)</label><input id="pdf-ranges" placeholder="1-3,5; 6-8"><p class="help">Each semicolon starts a new output file. Blank = one PDF per page.</p></div>
-        <div id="compress-settings" hidden><label class="field-label" for="pdf-compression">Compression mode</label><select id="pdf-compression"><option value="lossless">Keep quality — structural compression</option><option value="scan">Smaller file — render pages as images</option></select><p class="help">Image mode uses 100 DPI JPEG pages. Text becomes non-selectable; links, forms and signatures are removed. Check readability before sharing.</p></div>
-        <div class="pick-actions"><button id="tool-run" class="primary" disabled>Process files</button><button id="tool-clear" class="secondary">Clear</button></div>
-        <p id="tool-status" role="status" aria-live="polite"></p><div id="tool-results" aria-label="Download results"></div>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="site-header"><div class="header-inner">
+    <a class="brand" href="./" data-home aria-label="Binary Beat home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>binary<span>beat</span><span class="brand-dot">.</span></a>
+    <nav class="header-nav" aria-label="Main navigation"><button class="nav-link active" data-category="all">All tools</button><button class="nav-link" data-category="video">Video</button><button class="nav-link" data-category="image">Image</button><button class="nav-link" data-category="pdf">PDF</button></nav>
+    <div class="header-actions"><span class="local-badge" id="mode"><span></span>100% local</span><a id="download-windows" class="secondary desktop-link" href="https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe"><span data-icon="monitor"></span><span>Get desktop app</span><span data-icon="arrow-down"></span></a></div>
+  </div></header>
+  <main id="main-content" class="app">
+    <section id="home-panel">
+      <div class="hero"><div class="hero-badge"><span class="mini-spark">✦</span> SMALL TOOLS. BIG DIFFERENCE.</div><h1>Every file.<br class="mobile-break"> <span>A little easier.</span></h1><p>Your everyday video, image and PDF tools, together in one place.<br> Free to use. No sign-up. Your files stay yours.</p><div class="hero-trust"><span><span data-icon="shield"></span>Private by design</span><span><span data-icon="zap"></span>Works on your device</span><span><span data-icon="check"></span>Always free</span></div></div>
+      <section class="tool-directory" aria-label="Explore file tools">
+        <div class="directory-toolbar"><div class="filter-tabs" role="group" aria-label="Filter tools"><button data-category="all" class="filter-tab active" aria-pressed="true">All tools <span>12</span></button><button data-category="video" class="filter-tab" aria-pressed="false"><span data-icon="video"></span>Video</button><button data-category="image" class="filter-tab" aria-pressed="false"><span data-icon="image"></span>Image</button><button data-category="pdf" class="filter-tab" aria-pressed="false"><span data-icon="file"></span>PDF</button></div><label class="search-box"><span data-icon="search"></span><input id="tool-search" type="search" placeholder="Find your tool…" aria-label="Search tools"><kbd>/</kbd></label></div>
+        <div class="directory-label"><h2 id="directory-title">A tool for every to-do</h2><span id="tool-match-count">12 handy tools, zero hassle</span></div>
+        <div id="tool-grid" class="tool-grid"></div><div id="no-tools" class="no-tools" hidden><span data-icon="search"></span><h3>No tools found</h3><p>Try “compress”, “image”, or “PDF”.</p><button class="secondary" id="reset-search">Show all tools</button></div>
       </section>
-      <div id="video-panel">
-      <div class="heading video-heading"><div><div class="eyebrow">YOUR VIDEOS. A LITTLE LIGHTER.</div><h1>Big folder.<br><span>Smaller videos.</span></h1><p id="intro">Choose a folder. Set your size. We’ll take it from here.</p></div><div class="privacy"><span>◈</span><div>Stays on your device<small>Your videos are never uploaded.</small></div></div></div>
-      <div class="workspace">
-        <section class="queue-panel" aria-label="Video queue">
-          <div class="panel-heading"><h2>Your videos <span id="count">0</span></h2><button class="text-button" id="clear" disabled>Clear all</button></div>
-          <div id="dropzone" class="dropzone"><div class="folder-icon">↳</div><h3>One folder. Every video.</h3><p>Includes videos in subfolders.</p><div class="pick-actions"><button class="primary" id="pick-folder">Choose folder <span>＋</span></button><button class="secondary" id="pick-files">Select videos</button></div><small id="drop-hint">Or drop video files here · MP4, MOV, MKV, WebM & more</small></div>
-          <input id="folder-input" type="file" webkitdirectory multiple hidden /><input id="files-input" type="file" multiple accept="video/*,.mkv,.mts,.m2ts,.avi,.wmv,.flv" hidden />
-          <div id="queue" class="queue"></div>
-          <div class="queue-footer"><span id="total-size">No videos selected</span><span>Originals stay untouched</span></div>
-        </section>
-        <aside class="settings" aria-label="Resize settings">
-          <div class="panel-heading"><h2>Make it yours</h2><span class="step">01 / 02</span></div>
-          <label class="field-label" for="resolution">Maximum resolution</label>
-          <select id="resolution"><option value="1080">1080p · Full HD</option><option value="720">720p · HD</option><option value="480">480p · Compact</option><option value="original">Keep original dimensions</option></select>
-          <p class="help">Keeps the aspect ratio. Never enlarges smaller videos.</p>
-          <fieldset><legend>What matters most?</legend><label class="profile"><input type="radio" name="profile" value="balanced" checked><span><strong>Balanced</strong><small>Good quality. Faster processing.</small></span><span class="recommend">BEST FIT</span></label><label class="profile"><input type="radio" name="profile" value="smaller"><span><strong>Smallest file</strong><small>More compression, less detail.</small></span></label><label class="profile"><input type="radio" name="profile" value="quality"><span><strong>Higher quality</strong><small>More detail, larger files.</small></span></label></fieldset>
-          <div class="format"><span>OUTPUT FORMAT</span><strong>MP4 <small>H.264 + AAC</small></strong></div>
-          <div id="native-options" hidden><label class="check"><input type="checkbox" id="hardware" checked> Use hardware acceleration when available</label><button class="secondary full" id="output">Choose output folder</button><p class="help" id="output-label">Default: a new folder in Videos</p></div>
-          <div id="web-note" class="web-note">Best for short clips. Large folders run faster in the Windows app. Download each result before clearing the queue.</div>
-          <button class="secondary full" id="save-web-folder" hidden>Save automatically to folder</button>
-          <button class="primary full start" id="start" disabled>Optimize videos <span>↗</span></button><button class="secondary full" id="cancel" hidden>Cancel batch</button><button class="secondary full" id="open-output" hidden>Open output folder ↗</button>
-          <p class="help center">Processing time depends on your videos and device.</p>
-        </aside>
+      <section class="why-strip" aria-label="Why Binary Beat"><div><span class="why-icon" data-icon="lock"></span><div><h3>Your files stay with you</h3><p>Processed locally. Never sent to a server.</p></div></div><div><span class="why-icon" data-icon="layers"></span><div><h3>More files. Less busywork.</h3><p>Batch tools that do the heavy lifting.</p></div></div><div><span class="why-icon" data-icon="heart"></span><div><h3>Good tools, open to everyone</h3><p>No accounts, subscriptions, or watermarks.</p></div></div></section>
+      <section class="desktop-banner"><div class="desktop-banner-icon" data-icon="monitor"></div><div><span class="eyebrow">BIG BATCH? GO DESKTOP.</span><h2>More power for your biggest videos.</h2><p>Native video processing and automatic updates. Made for Windows.</p></div><a class="primary" href="https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe">Get the free Windows app <span data-icon="arrow-up-right"></span></a></section>
+    </section>
+    <section id="workspace-panel" hidden>
+      <div class="workspace-top"><button class="back-button" data-home><span data-icon="arrow-left"></span>All tools</button><span class="workspace-local"><span data-icon="shield"></span>Files stay on your device</span></div>
+      <div class="workspace-heading"><span id="workspace-icon" class="tool-icon"></span><div><div id="workspace-category" class="eyebrow">VIDEO TOOLS</div><h1 id="workspace-title">Resize video</h1><p id="workspace-description">The right size for wherever your video goes.</p></div></div>
+      <div id="video-panel" hidden>
+        <div class="workspace">
+          <section class="queue-panel" aria-label="Video queue"><div class="panel-heading"><h2>Your videos <span id="count">0</span></h2><button class="text-button" id="clear" disabled>Clear all</button></div>
+            <div id="dropzone" class="dropzone"><div class="upload-illustration"><span data-icon="video"></span><i data-icon="plus"></i></div><h3>Drop your videos here</h3><p>One clip or a whole folder. We’ve got you.</p><div class="pick-actions"><button class="primary" id="pick-files"><span data-icon="plus"></span>Select videos</button><button class="secondary" id="pick-folder"><span data-icon="folder"></span>Choose folder</button></div><small id="drop-hint">MP4, MOV, MKV, WebM & more · Up to 1 GB per file in browser</small></div>
+            <input id="folder-input" type="file" webkitdirectory multiple hidden /><input id="files-input" type="file" multiple accept="video/*,.mkv,.mts,.m2ts,.avi,.wmv,.flv" hidden />
+            <div id="queue" class="queue"></div><div class="queue-footer"><span id="total-size">No videos selected</span><span><span data-icon="shield"></span>Originals stay untouched</span></div>
+          </section>
+          <aside class="settings" aria-label="Video settings"><div class="panel-heading"><h2>Output settings</h2><span data-icon="sliders"></span></div>
+            <label class="field-label" for="resolution">Maximum resolution</label><select id="resolution"><option value="1080">1080p · Full HD</option><option value="720">720p · HD</option><option value="480">480p · Compact</option><option value="original">Keep original dimensions</option></select><p class="help">Keeps proportions. Never enlarges smaller videos.</p>
+            <fieldset><legend>Choose your balance</legend><label class="profile"><input type="radio" name="profile" value="balanced" checked><span><strong>Balanced <em>Recommended</em></strong><small>Good quality, smaller files</small></span></label><label class="profile"><input type="radio" name="profile" value="fast"><span><strong>Fastest</strong><small>Less waiting, larger files</small></span></label><label class="profile"><input type="radio" name="profile" value="smaller"><span><strong>Smallest file</strong><small>More compression, less detail</small></span></label><label class="profile"><input type="radio" name="profile" value="quality"><span><strong>Higher quality</strong><small>More detail, larger files</small></span></label></fieldset>
+            <details id="video-advanced"><summary>Trim & audio <span data-icon="chevron-down"></span></summary><div class="trim-fields"><label>Start (seconds)<input id="trim-start" type="number" min="0" step="0.1" value="0"></label><label>End (optional)<input id="trim-end" type="number" min="0" step="0.1" placeholder="End of video"></label></div><label class="check"><input id="mute" type="checkbox">Remove audio from video</label><p class="help">These settings apply to every video in the batch.</p></details>
+            <div class="format"><span>OUTPUT</span><strong>MP4 <small>H.264 + AAC</small></strong></div><div id="native-options" hidden><label class="check"><input type="checkbox" id="hardware" checked>Use hardware acceleration when available</label><button class="secondary full" id="output">Choose output folder</button><p class="help" id="output-label">Default: a new folder in Videos</p></div><p id="web-note" class="web-note"><span data-icon="info"></span>Best for short clips. Try the desktop app for large batches.</p><button class="secondary full" id="save-web-folder" hidden>Save automatically to folder</button><button class="primary full start" id="start" disabled>Process videos <span data-icon="arrow-right"></span></button><button class="secondary full" id="cancel" hidden>Cancel batch</button><button class="secondary full" id="open-output" hidden>Open output folder</button><button class="secondary full" id="video-download-all" hidden>Download all as ZIP</button><p class="help center">The video engine loads only when you need it.</p>
+          </aside>
+        </div>
+        <section class="batch-summary" aria-label="Batch progress"><div><span class="eyebrow">BATCH PROGRESS</span><strong id="batch-status">Ready when you are.</strong></div><div class="summary-number"><span id="done-count">0 / 0</span><small>videos finished</small></div><div class="summary-number"><span id="saved">—</span><small id="saved-label">space saved</small></div><progress id="overall" value="0" max="100" aria-label="Overall progress"></progress></section><p id="notice" role="status" aria-live="polite"></p>
       </div>
-      <section class="batch-summary" aria-label="Batch progress"><div><span class="eyebrow">BATCH PROGRESS</span><strong id="batch-status">Ready when you are.</strong></div><div class="summary-number"><span id="done-count">0 / 0</span><small>videos finished</small></div><div class="summary-number"><span id="saved">—</span><small id="saved-label">space saved</small></div><progress id="overall" value="0" max="100" aria-label="Overall progress"></progress></section>
-      <p id="notice" role="status" aria-live="polite"></p>
-      </div>
-    </main>
-    <footer><span>© Binary Beat · Free for everyone</span><span>Built to help. Donations coming later.</span></footer>
-  </div>
-  <script type="module" src="/src/main.js"></script>
-  <script type="module" src="/src/toolkit.js"></script>
+      <section id="tools-panel" class="file-workspace" hidden>
+        <div class="queue-panel file-input-panel"><div class="panel-heading"><h2>Your files <span id="tool-count">0</span></h2><button id="tool-clear" class="text-button">Clear all</button></div><div id="tool-dropzone" class="dropzone"><div class="upload-illustration"><span data-icon="file"></span><i data-icon="plus"></i></div><h3>Good things start with a file</h3><p>Drag and drop your files here, or choose below.</p><button id="tool-pick" class="primary"><span data-icon="plus"></span>Select files</button><input id="tool-input" type="file" multiple hidden accept="image/jpeg,image/png,image/webp"><small>Up to 200 MB per file / 500 MB per batch</small></div><div id="tool-files" aria-label="Selected files"></div><p id="tool-empty" class="empty-hint">Your selected files will appear here.</p><div class="queue-footer"><span id="tool-total-size">No files selected</span><span>Originals stay untouched</span></div></div>
+        <aside class="settings file-settings"><div class="panel-heading"><h2 id="tool-title">Output settings</h2><span data-icon="sliders"></span></div><p id="tool-help" class="help"></p><div id="image-settings" class="tool-controls"><label>Maximum width (px)<input id="image-width" type="number" value="1920" min="1" max="8192"></label><label>Maximum height (px)<input id="image-height" type="number" value="1080" min="1" max="8192"></label><label class="wide">Output format<select id="image-format"><option value="image/jpeg">JPG</option><option value="image/png">PNG · Transparency</option><option value="image/webp">WebP</option></select></label><label class="wide">Quality <output id="image-quality-value">80%</output><input id="image-quality" type="range" min="20" max="100" value="80"></label><p class="help wide">Keeps proportions. Image metadata is removed. JPG uses a white background for transparency.</p></div><div id="split-settings" hidden><label class="field-label" for="pdf-ranges">Page ranges (optional)</label><input id="pdf-ranges" placeholder="1-3,5; 6-8"><p class="help">Each semicolon starts a new PDF. Leave blank for one PDF per page.</p></div><div id="compress-settings" hidden><label class="field-label" for="pdf-compression">Compression mode</label><select id="pdf-compression"><option value="lossless">Keep quality · Structural</option><option value="scan">Smaller file · Image pages</option></select><p class="help">Image mode uses 100 DPI JPEG pages. Text becomes non-selectable; links, forms and signatures are removed. Check readability before sharing.</p></div><div id="rotate-settings" hidden><label class="field-label" for="pdf-rotation">Rotate clockwise</label><select id="pdf-rotation"><option value="90">90° · Quarter turn</option><option value="180">180° · Half turn</option><option value="270">270° · Three-quarter turn</option></select><label class="field-label spaced" for="pdf-rotate-ranges">Pages (optional)</label><input id="pdf-rotate-ranges" placeholder="All pages, or 1-3,5"><p class="help">Leave blank to rotate every page.</p></div><div id="images-pdf-settings" hidden><label class="field-label" for="pdf-page-size">Page size</label><select id="pdf-page-size"><option value="a4">A4 · Fit image to page</option><option value="original">Fit page to image</option></select><p class="help">Each image becomes one page. Reorder your files before creating the PDF.</p></div><button id="tool-run" class="primary full start" disabled>Process files</button><progress id="tool-progress" max="100" value="0" hidden aria-label="File processing progress"></progress><p id="tool-status" role="status" aria-live="polite"></p></aside>
+        <section class="results-panel" aria-label="Download results"><div class="results-heading"><h2 id="tool-result-summary">Your results</h2><button id="tool-download-all" class="secondary" hidden>Download all as ZIP</button></div><div id="tool-results"></div></section>
+      </section>
+      <div class="workspace-footnote"><span data-icon="lock"></span>No uploads. No accounts. Just your files, made better.</div>
+    </section>
+    <p id="app-notice" role="status" aria-live="polite" hidden></p>
+  </main>
+  <footer class="site-footer"><div><a class="brand footer-brand" href="./" data-home>binary<span>beat</span>.</a><span>A little less file hassle.</span></div><div><span>Free & open source</span><a href="https://github.com/mhridoy/video_resizer" target="_blank" rel="noopener noreferrer">Made for everyone <span data-icon="arrow-up-right"></span></a></div></footer>
+  <script type="module" src="/src/app.js"></script>
 </body>
 </html>

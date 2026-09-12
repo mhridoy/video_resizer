@@ -1,0 +1,33 @@
+const paths = {
+  video: '<rect x="3" y="5" width="13" height="14" rx="3"/><path d="m16 10 5-3v10l-5-3"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
+  compress: '<path d="M8 3v5H3m18 0h-5V3M3 16h5v5m8 0v-5h5M3 3l5 5m13-5-5 5M3 21l5-5m13 5-5-5"/>',
+  resize: '<path d="M8 3H3v5m13 13h5v-5M3 3l6 6m12 12-6-6M14 3h5a2 2 0 0 1 2 2v6M3 14v5a2 2 0 0 0 2 2h6"/>',
+  scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m8.2 8.2 12.3 12.3M14 10l6.5-6.5M8.2 15.8l4.1-4.1"/>',
+  mute: '<path d="m11 5-6 4H2v6h3l6 4zM17 9l5 6m0-6-5 6"/>',
+  merge: '<path d="M5 3v4a4 4 0 0 0 4 4h3m7-8v4a4 4 0 0 1-4 4h-3v10m-4-4 4 4 4-4"/>',
+  split: '<path d="M12 21V11m0 0H9a4 4 0 0 1-4-4V3m7 8h3a4 4 0 0 0 4-4V3M2 6l3-3 3 3m8 0 3-3 3 3"/>',
+  rotate: '<path d="M3 10a9 9 0 1 1 2.5 8M3 4v6h6"/><rect x="9" y="9" width="6" height="8" rx="1"/>',
+  convert: '<path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/>',
+  'images-pdf': '<rect x="3" y="3" width="13" height="16" rx="2"/><path d="M8 19v2h11a2 2 0 0 0 2-2V8h-5M3 15l4-4 3 3 3-2 3 3"/><path d="M7 7h.01"/>',
+  search: '<circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/>',
+  shield: '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/>',
+  lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/>',
+  zap: '<path d="m13 2-9 12h7l-1 8 10-12h-7z"/>',
+  heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>',
+  layers: '<path d="m12 3 10 5-10 5L2 8zm-10 9 10 5 10-5M2 16l10 5 10-5"/>',
+  monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M12 17v4m-4 0h8"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  folder: '<path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
+  'arrow-right': '<path d="M4 12h16m-6-6 6 6-6 6"/>',
+  'arrow-left': '<path d="M20 12H4m6-6-6 6 6 6"/>',
+  'arrow-down': '<path d="M12 3v14m-5-5 5 5 5-5M4 19v2h16v-2"/>',
+  'arrow-up-right': '<path d="M7 17 17 7M7 7h10v10"/>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+  sliders: '<path d="M4 7h4m4 0h8M4 17h9m4 0h3"/><circle cx="10" cy="7" r="2"/><circle cx="15" cy="17" r="2"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>'
+};
+export const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`;
+export function hydrateIcons(root = document) { root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }

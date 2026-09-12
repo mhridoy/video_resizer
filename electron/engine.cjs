@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const optionsModule = import('../shared/options.mjs');
+const encoderCache = new Map();
 
 async function scanFolder(root) {
   const { isVideo } = await optionsModule;
@@ -23,7 +24,14 @@ async function scanFolder(root) {
 }
 
 function getEncoders(binary) {
-  return new Promise(resolve => execFile(binary, ['-hide_banner', '-encoders'], { windowsHide: true }, (err, stdout) => resolve(err ? '' : stdout)));
+  if (!encoderCache.has(binary)) {
+    const discovery = new Promise(resolve => execFile(binary, ['-hide_banner', '-encoders'], { windowsHide: true }, (err, stdout) => {
+      if (err) encoderCache.delete(binary);
+      resolve(err ? '' : stdout);
+    }));
+    encoderCache.set(binary, discovery);
+  }
+  return encoderCache.get(binary);
 }
 
 class BatchEngine {
@@ -33,12 +41,13 @@ class BatchEngine {
     if (this.running) throw new Error('A batch is already running.');
     this.running = true; this.cancelled = false;
     try {
-      const { validateOptions, encodingArgs } = await optionsModule;
+      const { validateOptions, inputArgs, encodingArgs } = await optionsModule;
       const options = validateOptions(rawOptions);
       this.encodingArgs = encodingArgs;
+      this.inputArgs = inputArgs;
       await fs.mkdir(outputRoot, { recursive: true });
       const supported = options.hardware ? await getEncoders(this.binary) : '';
-      const encoder = process.platform === 'darwin' && supported.includes('h264_videotoolbox') ? 'h264_videotoolbox'
+      let encoder = process.platform === 'darwin' && supported.includes('h264_videotoolbox') ? 'h264_videotoolbox'
         : process.platform === 'win32' && supported.includes('h264_nvenc') ? 'h264_nvenc' : 'libx264';
       for (const file of files) {
         if (this.cancelled) break;
@@ -54,6 +63,8 @@ class BatchEngine {
           try { await this.convert(file, temporary, options, encoder); }
           catch (error) {
             if (encoder === 'libx264' || this.cancelled) throw error;
+            // Once a device fails, subsequent files can start on CPU immediately.
+            encoder = 'libx264';
             this.onEvent({ id: file.id, status: 'processing', progress: 0, encoder: 'libx264', note: 'Hardware unavailable; using CPU.' });
             await this.convert(file, temporary, options, 'libx264');
           }
@@ -74,13 +85,20 @@ class BatchEngine {
   convert(file, target, options, encoder) {
     return new Promise((resolve, reject) => {
       if (this.cancelled) return reject(new Error('Cancelled'));
-      const child = spawn(this.binary, ['-hide_banner', '-nostdin', '-y', '-i', file.path, ...this.encodingArgs(options, encoder), '-progress', 'pipe:1', target], { windowsHide: true });
+      const child = spawn(this.binary, ['-hide_banner', '-nostdin', '-y', ...this.inputArgs(options), '-i', file.path, ...this.encodingArgs(options, encoder), '-progress', 'pipe:1', target], { windowsHide: true });
       this.child = child;
-      let stderr = '', progressBuffer = '', duration = 0;
+      let stderr = '', progressBuffer = '', duration = 0, trimError = '';
       child.stderr.on('data', chunk => {
         stderr = (stderr + chunk.toString()).slice(-12000);
         const match = stderr.match(/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/);
-        if (match) duration = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+        if (match) {
+          const sourceDuration = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+          duration = Math.max(0, Math.min(sourceDuration, options.trimEnd ?? sourceDuration) - options.trimStart);
+          if (options.trimStart > 0 && options.trimStart >= sourceDuration) {
+            trimError = 'Trim start must be earlier than the end of this video.';
+            child.kill();
+          }
+        }
       });
       child.stdout.on('data', chunk => {
         progressBuffer += chunk.toString();
@@ -93,7 +111,8 @@ class BatchEngine {
       child.on('error', reject);
       child.on('close', code => {
         this.child = null;
-        if (code === 0) resolve();
+        if (trimError) reject(new Error(trimError));
+        else if (code === 0) resolve();
         else reject(new Error(stderr.split('\n').filter(Boolean).slice(-4).join(' ').slice(-600) || 'Could not read or convert this video.'));
       });
     });

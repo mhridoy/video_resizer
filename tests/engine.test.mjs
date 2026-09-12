@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
-import { validateOptions, encodingArgs } from '../shared/options.mjs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { validateOptions, inputArgs, encodingArgs } from '../shared/options.mjs';
 const require = createRequire(import.meta.url);
 const binary = require('ffmpeg-static');
 const { BatchEngine, scanFolder } = require('../electron/engine.cjs');
@@ -13,6 +13,21 @@ const { BatchEngine, scanFolder } = require('../electron/engine.cjs');
 test('rejects unsupported settings', () => {
   assert.throws(() => validateOptions({ profile: '__proto__' }));
   assert.throws(() => validateOptions({ resolution: '720; rm' }));
+  for (const trimStart of [-1, Infinity, NaN, '3', null]) assert.throws(() => validateOptions({ trimStart }));
+  for (const trimEnd of [0, 2, Infinity, NaN, '4', null]) assert.throws(() => validateOptions({ trimStart: 2, trimEnd }));
+  assert.throws(() => validateOptions({ mute: 'false' }));
+  assert.equal(validateOptions({ trimStart: 0.25, trimEnd: 1.5, profile: 'fast', mute: true }).trimEnd, 1.5);
+});
+test('shared conversion settings seek before input and preserve audio by default', () => {
+  assert.deepEqual(inputArgs({}), []);
+  assert.deepEqual(inputArgs({ trimStart: 2.25 }), ['-ss', '2.25']);
+  assert.ok(encodingArgs({}).includes('0:a:0?'));
+  const args = encodingArgs({ profile: 'fast', trimStart: 2.25, trimEnd: 5, mute: true });
+  assert.equal(args[args.indexOf('-preset') + 1], 'ultrafast');
+  assert.equal(args[args.indexOf('-t') + 1], '2.75');
+  assert.ok(args.includes('-an'));
+  assert.ok(!args.includes('0:a:0?'));
+  assert.ok(!args.includes('-c:a'));
 });
 test('recursive batch preserves originals, output hierarchy, handles errors and filename collisions', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'resizer-'));
@@ -68,6 +83,74 @@ test('resizing preserves landscape and portrait shape without upscaling', () => 
     assert.equal(output.length, w * h * 3);
   }
 });
+test('native engine trims, mutes and uses the fast profile while preserving the source', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'resizer-trim-'));
+  try {
+    const source = path.join(root, 'source.mp4');
+    execFileSync(binary, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=12', '-f', 'lavfi', '-i', 'sine=frequency=440', '-t', '3', '-c:v', 'libx264', '-c:a', 'aac', source]);
+    const before = await readFile(source);
+    const events = [];
+    const engine = new BatchEngine(binary, event => events.push(event));
+    const files = [{ id: 'clip', name: 'source.mp4', path: source }];
+    const output = path.join(root, 'output');
+    await engine.run(files, output, { trimStart: 0.5, trimEnd: 1.5, mute: true, profile: 'fast', hardware: false });
+    assert.ok(events.some(event => event.status === 'done'));
+    const probe = spawnSync(binary, ['-hide_banner', '-i', path.join(output, 'source.mp4.optimized.mp4'), '-f', 'null', '-'], { encoding: 'utf8' });
+    assert.equal(probe.status, 0, probe.stderr);
+    assert.match(probe.stderr, /Duration: 00:00:01\.00/);
+    assert.match(probe.stderr, /Video: h264/);
+    assert.doesNotMatch(probe.stderr, /Audio:/);
+    assert.deepEqual(await readFile(source), before);
+
+    events.length = 0;
+    await engine.run(files, path.join(root, 'past-end'), { trimStart: 4, hardware: false });
+    assert.ok(events.some(event => event.status === 'error' && /Trim start/.test(event.error)));
+    assert.deepEqual(await readdir(path.join(root, 'past-end')), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('encoder discovery is reused and failed hardware is skipped for the rest of a batch', { skip: process.platform === 'win32' && 'Executable test fixtures require POSIX shebang support.' }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'resizer-encoders-'));
+  try {
+    const fakeBinary = path.join(root, 'ffmpeg.cjs');
+    const discoveries = path.join(root, 'discoveries.txt');
+    await writeFile(fakeBinary, `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(discoveries)}, 'discovered\\n');\nprocess.stdout.write('h264_videotoolbox h264_nvenc libx264');\n`, { mode: 0o755 });
+    const attempts = [];
+    class FakeEngine extends BatchEngine {
+      async convert(file, target, options, encoder) {
+        attempts.push({ id: file.id, encoder });
+        if (encoder !== 'libx264') throw new Error('No hardware device.');
+        await writeFile(target, 'converted');
+      }
+    }
+    const files = [{ id: 'a', name: 'a.mp4' }, { id: 'b', name: 'b.mp4' }];
+    const engine = new FakeEngine(fakeBinary, () => {});
+    await engine.run(files, path.join(root, 'output'), { hardware: true });
+    if (['darwin', 'win32'].includes(process.platform)) {
+      assert.equal(attempts.filter(attempt => attempt.encoder !== 'libx264').length, 1);
+      assert.deepEqual(attempts.filter(attempt => attempt.id === 'b'), [{ id: 'b', encoder: 'libx264' }]);
+    }
+    await new FakeEngine(fakeBinary, () => {}).run(files, path.join(root, 'another-output'), { hardware: true });
+    assert.equal(await readFile(discoveries, 'utf8'), 'discovered\n');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('native progress measures the kept clip duration and seeks before opening input', { skip: process.platform === 'win32' && 'Executable test fixtures require POSIX shebang support.' }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'resizer-progress-'));
+  try {
+    const fakeBinary = path.join(root, 'ffmpeg.cjs');
+    const commandFile = path.join(root, 'command.json');
+    await writeFile(fakeBinary, `#!${process.execPath}\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nfs.writeFileSync(${JSON.stringify(commandFile)}, JSON.stringify(args));\nprocess.stderr.write('Duration: 00:00:10.00, start: 0.000000\\n');\nsetTimeout(() => { process.stdout.write('out_time_us=1000000\\n'); fs.writeFileSync(args.at(-1), 'converted'); }, 50);\n`, { mode: 0o755 });
+    const events = [];
+    await new BatchEngine(fakeBinary, event => events.push(event)).run([{ id: 'clip', name: 'clip.mp4', path: 'input.mp4' }], path.join(root, 'output'), { hardware: false, trimStart: 2, trimEnd: 4 });
+    assert.ok(events.some(event => event.progress === 50), JSON.stringify(events));
+    const args = JSON.parse(await readFile(commandFile, 'utf8'));
+    assert.ok(args.indexOf('-ss') < args.indexOf('-i'));
+    assert.equal(args[args.indexOf('-ss') + 1], '2');
+    assert.equal(args[args.indexOf('-t') + 1], '2');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('browser WASM engine converts with the same resize settings', async () => {
   globalThis.self = globalThis;
   globalThis.location = { href: 'file:///ffmpeg-core.js' };
@@ -78,4 +161,17 @@ test('browser WASM engine converts with the same resize settings', async () => {
   assert.equal(code, 0);
   assert.ok(core.FS.readFile('/output.mp4').byteLength > 1000);
   core.FS.unlink('/output.mp4');
+  core.reset();
+  assert.equal(core.exec('-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=8', '-f', 'lavfi', '-i', 'sine=frequency=440', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '/source.mp4'), 0);
+  core.reset();
+  const options = { profile: 'fast', resolution: 'original', trimStart: 0.5, trimEnd: 1.25, mute: true };
+  assert.equal(core.exec(...inputArgs(options), '-i', '/source.mp4', ...encodingArgs(options), '/clip.mp4'), 0);
+  const logs = [];
+  core.setLogger(({ message }) => logs.push(message));
+  core.reset();
+  assert.equal(core.exec('-hide_banner', '-i', '/clip.mp4', '-f', 'null', '-'), 0);
+  assert.match(logs.join('\n'), /Duration: 00:00:00\.75/);
+  assert.doesNotMatch(logs.join('\n'), /Audio:/);
+  core.FS.unlink('/source.mp4');
+  core.FS.unlink('/clip.mp4');
 });
