@@ -84,3 +84,9 @@ If hosted Actions cannot run, prepare `release/win-unpacked` with electron-build
 Binary Beat is free for everyone. Donations are not enabled yet. Use the tool cards to choose video resize, batch image resize (JPG/PNG/WebP), PDF merge, split or compression. All processing stays on your device, in the web and Windows apps.
 
 PDF merge respects the displayed file order. Split accepts ranges such as `1-3,5;6-8`; blank ranges create one file per page. Quality-preserving PDF compression optimizes structure without downsampling images. Smaller-file mode renders pages as JPEGs (up to 100 DPI / 2400 pixels), losing selectable text, links, forms and signatures. It keeps the original if compression makes it larger. Merge/split are intended for ordinary documents; forms and bookmarks may not survive page copying. Password-protected files must be unlocked first. Image exports remove metadata and preserve aspect ratio without upscaling.
+
+## Automatic Windows updates
+
+Install the latest Setup EXE once to enable updates; older builds and portable EXEs cannot update themselves. Installed builds check GitHub Releases on launch and every four hours, download newer stable versions in the background, and install on normal app exit. They never force a restart. Use the **Updates** menu to see progress or check manually. Save image/PDF downloads before closing. Offline checks fail quietly and can be retried later.
+
+CI stamps each Windows build with a strictly increasing `1.2.<run number × 100 + attempt>` version and publishes the Setup EXE, `latest.yml`, and blockmap together. Keep the app ID and GitHub update feed unchanged. This project is currently unsigned; signing certificates should be configured for trusted publisher verification.

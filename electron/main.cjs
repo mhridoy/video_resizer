@@ -55,6 +55,8 @@ app.whenReady().then(async () => {
     win.loadURL(page);
   }
   createWindow();
+  const { autoUpdater } = require('electron-updater');
+  require('./updates.cjs').setupUpdates({ app, autoUpdater, portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR) });
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 app.on('window-all-closed', () => { engine?.cancel(); if (process.platform !== 'darwin') app.quit(); });
