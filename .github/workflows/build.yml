@@ -59,13 +59,13 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const tag = `v1.0.${context.runNumber}-${context.runAttempt}`;
+            const tag = `v1.0.${context.runNumber}-${process.env.GITHUB_RUN_ATTEMPT}`;
             const { data: release } = await github.rest.repos.createRelease({
               ...context.repo,
               tag_name: tag,
               target_commitish: context.sha,
               name: `Video Resizer ${tag}`,
-              body: 'Download the Windows Setup EXE to install, or the portable EXE to run without installation. These initial builds are unsigned; your OS may show an unknown-publisher warning. All processing happens on your device.',
+              body: "## Download Video Resizer for Windows\n\n[**Download Windows installer (.exe)**](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe) — recommended for Windows 10/11, 64-bit.\n\n[Portable EXE — no installation](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Portable.exe)\n\n### Get started\n1. Download and install the Setup EXE.\n2. Choose your video folder, including subfolders.\n3. Select your resolution and click **Optimize videos**.\n\nOriginal videos stay untouched. Processing happens locally; FFmpeg is included.\n\n**Unsigned build:** Windows may show an unknown-publisher warning. Native conversion tests and packaging passed in GitHub Actions; interactive installer and GUI testing are still needed.\n\n[Use the web app](https://video-resizer-eta.vercel.app/)",
               draft: true,
               prerelease: false
             });
