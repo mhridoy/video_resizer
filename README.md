@@ -1,6 +1,6 @@
 # Binary Beat — Free File Tools
 
-A searchable dashboard with **12 free tools** for videos, images and PDFs on **Windows and the web**. Filter by file type, choose a tool, and process files locally.
+A searchable dashboard with **13 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows, macOS and the web**. Filter by file type, choose a tool, and process files locally.
 
 Batch resize and compress videos. Choose an entire folder, including subfolders, and convert every supported video to MP4. Originals are never changed.
 
@@ -16,6 +16,43 @@ Web app: https://video-resizer-eta.vercel.app/
 The desktop app saves to a new, timestamped folder inside Videos, or inside your selected output directory. Subfolders are preserved. Outputs include the source extension in their names, so `clip.mov` and `clip.mp4` cannot overwrite one another. Already generated `Video Resizer Output…` folders are excluded from scans.
 
 The web app processes locally in your browser: no video upload, account, or server-side conversion. Download individual results from the queue. Chrome and Edge also offer **Save automatically to folder**, which preserves the input hierarchy and avoids keeping every result in memory. Do not close the tab while processing or before saving downloads.
+
+## Container Load Pack
+
+Prepare a container's load documentation for email or upload portals with a per-file limit (24 MB by default):
+
+1. Open **Container Load Pack** and **Choose folder** (or drop it). Subfolders are included, so one run can cover several containers.
+2. Container numbers are read from folder and file names (e.g. `CSQU3054383/…`) and checked against the ISO 6346 check digit. Files without one use the **default container number**.
+3. Files are sorted into **Load photos, Load videos, Invoices, Weight tickets** and **Other documents** (names containing invoice, weight, VGM, ticket, kanta, B/L, packing… are recognised). Change any category in the table.
+4. Click **Prepare files**. Each container gets a ZIP, a CSV manifest and **email parts**: ZIP files that each stay under the same limit.
+
+Output structure with standard names enabled:
+
+```
+CSQU3054383/
+  CSQU3054383_manifest.csv
+  01_Load_Photos/CSQU3054383_PHOTO_01.jpg
+  02_Load_Videos/CSQU3054383_VIDEO_01.mp4
+  03_Invoices/CSQU3054383_INVOICE_01.pdf
+  04_Weight_Tickets/CSQU3054383_WEIGHT_01.jpg
+  05_Documents/CSQU3054383_DOC_01.docx
+```
+
+| File type | When a file is over the limit |
+| --- | --- |
+| Photos (JPG, PNG, WebP, GIF, BMP, AVIF) | Lower quality step by step, then smaller dimensions. Transparent images become WebP. |
+| Videos (MP4, MOV, MKV, AVI…) | MP4 (H.264/AAC) at a bitrate calculated from the duration, retried lower if needed. Desktop uses native FFmpeg (VideoToolbox on Mac). |
+| PDF invoices and tickets | Lossless structural compression first; if still too large, pages are rendered at 110 → 60 DPI (text no longer selectable). |
+| Word, Excel, PowerPoint, OpenDocument | Embedded pictures are reduced; text and layout are untouched. |
+
+Files already within the limit are kept byte-for-byte. Originals are never modified, and nothing is uploaded.
+
+## macOS downloads
+
+- [Mac with Apple silicon (M1–M4)](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-arm64.dmg)
+- [Mac with Intel](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-x64.dmg)
+
+Open the DMG and drag **Binary Beat** to Applications. Builds are ad-hoc signed, not notarized (that requires a paid Apple Developer ID), so the first time right-click the app → **Open**, or use System Settings → Privacy & Security → **Open Anyway**. Requires macOS 11 or later. Mac builds don't auto-update; download new versions from the link above. Build locally on a Mac with `npm ci && npm run package:mac`.
 
 ## Windows downloads
 

@@ -11,6 +11,8 @@ const paths = {
   rotate: '<path d="M3 10a9 9 0 1 1 2.5 8M3 4v6h6"/><rect x="9" y="9" width="6" height="8" rx="1"/>',
   convert: '<path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/>',
   'images-pdf': '<rect x="3" y="3" width="13" height="16" rx="2"/><path d="M8 19v2h11a2 2 0 0 0 2-2V8h-5M3 15l4-4 3 3 3-2 3 3"/><path d="M7 7h.01"/>',
+  container: '<path d="M2 7l10-4 10 4v10l-10 4-10-4z"/><path d="M2 7l10 4 10-4M12 11v10M6.5 9v9M17.5 9v9"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
   search: '<circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/>',
   shield: '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/>',
   lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/>',

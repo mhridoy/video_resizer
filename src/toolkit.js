@@ -49,7 +49,7 @@ function renderFiles() {
       ['↓', 'Move down', index === files.length - 1, () => { [files[index + 1], files[index]] = [files[index], files[index + 1]]; }],
       ['×', 'Remove', false, () => files.splice(index, 1)],
     ]) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'secondary icon-button'; button.textContent = label;
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-ghost btn-icon'; button.textContent = label;
       button.disabled = busy || unavailable; button.setAttribute('aria-label', `${title} ${file.name}`); button.title = `${title} ${file.name}`;
       button.onclick = () => { if (busy) return; action(); renderFiles(); };
       actions.append(button);
@@ -82,7 +82,7 @@ function addResult(data, filename, note = '', type = 'application/pdf') {
   const name = document.createElement('strong'); name.textContent = filename;
   const detail = document.createElement('span'); detail.textContent = `${formatSize(blob.size)}${note ? ` · ${note}` : ''}`;
   info.append(name, detail);
-  const link = document.createElement('a'); link.href = url; link.download = filename; link.className = 'primary download-link'; link.textContent = 'Download ↓';
+  const link = document.createElement('a'); link.href = url; link.download = filename; link.className = 'btn btn-secondary btn-sm download-link'; link.textContent = 'Download';
   link.setAttribute('aria-label', `Download ${filename}`); link.onclick = () => { record.downloaded = true; };
   row.append(info, link); $('tool-results').append(row);
   if ($('tool-download-all')) $('tool-download-all').hidden = results.length < 2;
@@ -122,7 +122,7 @@ function addFiles(picked) {
     if (tool === 'split') break;
   }
   if (accepted.length) files = tool === 'split' ? accepted : [...files, ...accepted];
-  renderFiles(); announce(rejected.length ? rejected.join(' ') : accepted.length ? `${accepted.length} ${accepted.length === 1 ? 'file added' : 'files added'}. Ready when you are.` : 'These files are already in your selection.');
+  renderFiles(); announce(rejected.length ? rejected.join(' ') : accepted.length ? `${accepted.length} ${accepted.length === 1 ? 'file added' : 'files added'}. Ready to process.` : 'These files are already in your selection.');
 }
 
 $('tool-input').onchange = event => { addFiles([...event.target.files]); event.target.value = ''; };
@@ -222,7 +222,7 @@ $('tool-run').onclick = async () => {
     updateProgress(100);
     const total = results.reduce((sum, item) => sum + item.blob.size, 0);
     if ($('tool-result-summary')) $('tool-result-summary').textContent = results.length ? `${results.length} ${results.length === 1 ? 'file' : 'files'} ready · ${formatSize(total)}` : 'No files were created';
-    announce(failed ? `${results.length} ${results.length === 1 ? 'result ready' : 'results ready'}, ${failed} ${failed === 1 ? 'file failed' : 'files failed'}. See details below.` : 'All done! Your files are ready to download. Originals are unchanged.');
+    announce(failed ? `${results.length} ${results.length === 1 ? 'result ready' : 'results ready'}, ${failed} ${failed === 1 ? 'file failed' : 'files failed'}. See details below.` : 'Complete. Download your files below; originals are unchanged.');
   } catch (error) { announce(error.message); updateProgress(0, false); }
   finally { setBusy(false); }
 };

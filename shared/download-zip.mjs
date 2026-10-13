@@ -3,15 +3,17 @@ const crcTable = Array.from({ length: 256 }, (_, value) => {
   return value >>> 0;
 });
 
-function crc32(bytes) {
+export function crc32(bytes) {
   let crc = 0xffffffff;
   for (const byte of bytes) crc = crcTable[(crc ^ byte) & 255] ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function uniqueName(value, used) {
-  const name = String(value || 'download').replace(/[\\/\u0000-\u001f]/g, '_');
-  const dot = name.lastIndexOf('.');
+function uniqueName(value, used, keepFolders = false) {
+  const name = keepFolders
+    ? String(value || 'download').split(/[\\/]/).map(part => part.replace(/[\u0000-\u001f]/g, '_')).filter(part => part && part !== '.' && part !== '..').join('/') || 'download'
+    : String(value || 'download').replace(/[\\/\u0000-\u001f]/g, '_');
+  const dot = name.lastIndexOf('.') > name.lastIndexOf('/') + 1 ? name.lastIndexOf('.') : -1;
   const stem = dot > 0 ? name.slice(0, dot) : name, extension = dot > 0 ? name.slice(dot) : '';
   let candidate = name, number = 2;
   while (used.has(candidate.toLowerCase())) candidate = `${stem} (${number++})${extension}`;
@@ -20,12 +22,12 @@ function uniqueName(value, used) {
 }
 
 // ZIP's stored method avoids recompressing already-compressed media and works offline.
-export async function createZip(files) {
+export async function createZip(files, { keepFolders = false } = {}) {
   if (!files.length || files.length > 65535) throw Error('Choose between 1 and 65,535 files for the ZIP.');
   const parts = [], central = [], used = new Set(), encoder = new TextEncoder();
   let offset = 0, centralLength = 0;
   for (const file of files) {
-    const filename = encoder.encode(uniqueName(file.name, used));
+    const filename = encoder.encode(uniqueName(file.name, used, keepFolders));
     if (filename.length > 65535) throw Error('A filename is too long for ZIP.');
     const bytes = new Uint8Array(await file.blob.arrayBuffer());
     if (bytes.length > 0xffffffff || offset + bytes.length + filename.length + 30 > 0xffffffff) throw Error('This ZIP is too large. Download the files individually.');
@@ -49,8 +51,8 @@ export async function createZip(files) {
   return new Blob([...parts, ...central, footer], { type: 'application/zip' });
 }
 
-export async function downloadZip(files, filename = 'Binary-Beat-files.zip') {
-  const blob = await createZip(files);
+export async function downloadZip(files, filename = 'Binary-Beat-files.zip', options) {
+  const blob = await createZip(files, options);
   const url = URL.createObjectURL(blob), link = document.createElement('a');
   link.href = url; link.download = filename; document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
