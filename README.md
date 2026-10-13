@@ -1,6 +1,6 @@
 # Binary Beat — Free File Tools
 
-A searchable dashboard with **12 free tools** for videos, images and PDFs on **Windows and the web**. Filter by file type, choose a tool, and process files locally.
+A searchable dashboard with **13 free tools** for videos, images, PDFs and Office documents on **Windows, macOS and the web**. Filter by file type, choose a tool, and process files locally.
 
 Batch resize and compress videos. Choose an entire folder, including subfolders, and convert every supported video to MP4. Originals are never changed.
 
@@ -16,6 +16,31 @@ Web app: https://video-resizer-eta.vercel.app/
 The desktop app saves to a new, timestamped folder inside Videos, or inside your selected output directory. Subfolders are preserved. Outputs include the source extension in their names, so `clip.mov` and `clip.mp4` cannot overwrite one another. Already generated `Video Resizer Output…` folders are excluded from scans.
 
 The web app processes locally in your browser: no video upload, account, or server-side conversion. Download individual results from the queue. Chrome and Edge also offer **Save automatically to folder**, which preserves the input hierarchy and avoids keeping every result in memory. Do not close the tab while processing or before saving downloads.
+
+## Fit to 24 MB (folder import)
+
+A separate all-in-one tool for sending files where uploads are capped (email, portals, messengers):
+
+1. Open **Fit to 24 MB**, then **Choose folder** (or drop a folder). Subfolders are included.
+2. Keep the 24 MB limit or pick 10 / 25 / 100 MB or any value from 1 to 2048 MB.
+3. Click **Fit all files**, then **Download ZIP** or **Save to folder** (Chrome/Edge/desktop). The folder structure is kept.
+
+| File type | What happens when a file is over the limit |
+| --- | --- |
+| Images (JPG, PNG, WebP, GIF, BMP, AVIF) | Lower quality step by step, then smaller dimensions. Photos become JPG; transparent images become WebP. |
+| Videos (MP4, MOV, MKV, AVI…) | Re-encoded to MP4 (H.264/AAC) at a bitrate calculated from the duration; retried at a lower bitrate if needed. Desktop uses native FFmpeg (VideoToolbox on Mac). |
+| PDF | Structural compression first (text kept). If still too large, pages are rendered as JPEG at 110 → 60 DPI (text no longer selectable). |
+| Word, PowerPoint, Excel, OpenDocument | Embedded pictures are re-encoded and downscaled; text, layout and formatting are untouched. |
+| Anything else | Copied unchanged when it fits; reported when it can't be shrunk. |
+
+Files that already fit are kept byte-for-byte. Originals are never modified.
+
+## macOS downloads
+
+- [Mac with Apple silicon (M1–M4)](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-arm64.dmg)
+- [Mac with Intel](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-x64.dmg)
+
+Open the DMG and drag **Binary Beat** to Applications. Builds are ad-hoc signed, not notarized (that requires a paid Apple Developer ID), so the first time right-click the app → **Open**, or use System Settings → Privacy & Security → **Open Anyway**. Requires macOS 11 or later. Mac builds don't auto-update; download new versions from the link above. Build locally on a Mac with `npm ci && npm run package:mac`.
 
 ## Windows downloads
 

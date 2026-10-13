@@ -4,7 +4,8 @@ const fs = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { BatchEngine, scanFolder } = require('./engine.cjs');
-let win, engine, outputBase, lastOutput;
+const { FitVideo } = require('./fit-video.cjs');
+let win, engine, fitter, outputBase, lastOutput;
 const selected = new Map();
 const page = pathToFileURL(path.join(__dirname, '../dist/index.html')).href;
 function handle(channel, fn) {
@@ -40,6 +41,14 @@ app.whenReady().then(async () => {
     return lastOutput;
   });
   handle('cancel-batch', () => engine.cancel());
+  fitter = new FitVideo(binary);
+  handle('fit-video', async (file, targetBytes, mute) => {
+    if (fitter.child) throw new Error('Wait for the current video.');
+    if (typeof file !== 'string' || !Number.isSafeInteger(targetBytes) || targetBytes < 1024 ** 2) throw new Error('Invalid video request.');
+    const result = await fitter.fit(file, targetBytes, { mute: mute === true }, progress => { if (!win.isDestroyed()) win.webContents.send('fit-progress', progress); });
+    return new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+  });
+  handle('fit-cancel', () => fitter.cancel());
   handle('open-output', async () => { if (lastOutput) { const error = await shell.openPath(lastOutput); if (error) throw new Error(error); } });
   handle('clear-input', () => { if (!engine.running) selected.clear(); });
   function createWindow() {
@@ -47,9 +56,9 @@ app.whenReady().then(async () => {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.on('close', event => {
-      if (engine.running) {
+      if (engine.running || fitter?.child) {
         const choice = dialog.showMessageBoxSync(win, { type: 'question', buttons: ['Keep converting', 'Cancel and close'], defaultId: 0, cancelId: 0, message: 'A batch is still running. Cancel it and close?' });
-        if (choice === 0) event.preventDefault(); else engine.cancel();
+        if (choice === 0) event.preventDefault(); else { engine.cancel(); fitter?.cancel(); }
       }
     });
     win.loadURL(page);
@@ -59,5 +68,5 @@ app.whenReady().then(async () => {
   require('./updates.cjs').setupUpdates({ app, autoUpdater, portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR) });
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
-app.on('window-all-closed', () => { engine?.cancel(); if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => engine?.cancel());
+app.on('window-all-closed', () => { engine?.cancel(); fitter?.cancel(); if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { engine?.cancel(); fitter?.cancel(); });

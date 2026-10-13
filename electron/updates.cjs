@@ -2,14 +2,17 @@ const { Menu } = require('electron');
 function setupUpdates({ app, autoUpdater, portable = false, platform = process.platform, setTimer = setInterval }) {
   let status = `Version ${app.getVersion()}`, checking = false, ready = false;
   const enabled = app.isPackaged && platform === 'win32' && !portable;
+  const mac = platform === 'darwin';
+  const manual = mac ? 'Get new Mac versions from the website' : 'Use the Setup installer for automatic updates';
   const render = () => Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'File', submenu: [{ role: 'quit', label: 'Exit Binary Beat' }] },
+    mac ? { role: 'appMenu' } : { label: 'File', submenu: [{ role: 'quit', label: 'Exit Binary Beat' }] },
     { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: 'Updates', submenu: [
       { label: status, enabled: false },
       { label: 'Check for updates', enabled: enabled && !checking && !ready, click: check },
-      { label: enabled ? 'Downloaded updates install when you exit' : 'Use the Setup installer for automatic updates', enabled: false }
-    ] }
+      { label: enabled ? 'Downloaded updates install when you exit' : manual, enabled: false }
+    ] },
+    ...(mac ? [{ role: 'windowMenu' }] : [])
   ]));
   async function check() {
     if (!enabled || checking || ready) return;
