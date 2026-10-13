@@ -47,15 +47,24 @@ class FitVideo {
           const seconds = Number(line.split('=')[1]) / 1e6;
           if (Number.isFinite(seconds)) onProgress(Math.min(99, (attempt + seconds / duration) / (attempt + 1) * 100), attempt);
         };
-        let result = await this.run(['-hide_banner', '-nostdin', '-y', '-i', input, ...videoArgs(plan, encoder), '-progress', 'pipe:1', target], onLine);
+        const encode = () => this.run(['-hide_banner', '-nostdin', '-y', '-i', input, ...videoArgs(plan, encoder), '-progress', 'pipe:1', target], onLine);
+        let result = await encode();
         if (this.cancelled) throw new Error('Cancelled');
         if (result.code !== 0 && encoder !== 'libx264') {
           encoder = 'libx264';
-          result = await this.run(['-hide_banner', '-nostdin', '-y', '-i', input, ...videoArgs(plan, encoder), '-progress', 'pipe:1', target], onLine);
+          result = await encode();
           if (this.cancelled) throw new Error('Cancelled');
         }
         if (result.code !== 0) throw new Error(result.stderr.split('\n').filter(Boolean).slice(-3).join(' ').slice(-500) || 'Could not convert this video.');
-        const { size } = await fs.stat(target);
+        let { size } = await fs.stat(target);
+        // VideoToolbox does not hold its bitrate on detailed footage; libx264 does, so retry this budget on the CPU.
+        if (size > targetBytes && encoder !== 'libx264') {
+          encoder = 'libx264';
+          result = await encode();
+          if (this.cancelled) throw new Error('Cancelled');
+          if (result.code !== 0) throw new Error(result.stderr.split('\n').filter(Boolean).slice(-3).join(' ').slice(-500) || 'Could not convert this video.');
+          ({ size } = await fs.stat(target));
+        }
         if (size && size <= targetBytes) return { data: await fs.readFile(target), width: plan.maxEdge, attempt };
       }
       throw new Error('Could not get this video under the size limit.');
