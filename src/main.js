@@ -1,4 +1,5 @@
 import { inputArgs, encodingArgs, validateOptions, isVideo } from '../shared/options.mjs';
+import { icon } from './icons.js';
 
 const $ = id => document.getElementById(id);
 const native = window.desktop;
@@ -66,7 +67,7 @@ function updateRow(file) {
   let row = document.getElementById(file.id);
   if (!row) {
     row = document.createElement('div'); row.className = 'video-row'; row.id = file.id;
-    row.innerHTML = '<div class="video-icon" aria-hidden="true">▶</div><div><span class="video-name"></span><div class="video-details"></div><progress class="row-progress" max="100" aria-label="Video progress"></progress></div><div class="video-actions"><span class="status"></span><button class="remove-video" type="button">×</button></div>';
+    row.innerHTML = `<div class="file-icon video" aria-hidden="true">${icon('video')}</div><div><span class="video-name"></span><div class="video-details"></div><progress class="row-progress" max="100" aria-label="Video progress"></progress></div><div class="video-actions"><span class="status"></span><button class="remove-video" type="button">${icon('close')}</button></div>`;
     const remove = row.querySelector('.remove-video');
     remove.setAttribute('aria-label', `Remove ${file.name}`); remove.title = 'Remove video';
     remove.onclick = () => {
@@ -75,7 +76,7 @@ function updateRow(file) {
       const index = queue.indexOf(file); if (index === -1) return;
       if (file.url) URL.revokeObjectURL(file.url);
       queue.splice(index, 1); pendingProgress.delete(file); row.remove(); updateSummary();
-      if (!queue.length) $('batch-status').textContent = 'Ready when you are.';
+      if (!queue.length) $('batch-status').textContent = 'Ready.';
     };
     $('queue').append(row);
   }
@@ -87,7 +88,7 @@ function updateRow(file) {
   const progress = row.querySelector('progress'); progress.hidden = file.status !== 'processing'; progress.value = file.progress || 0;
   row.querySelector('.remove-video').disabled = busy;
   if (file.url && !row.querySelector('.download')) {
-    const link = document.createElement('a'); link.className = 'download'; link.href = file.url; link.download = file.name.replaceAll(/[\\/]/g, '_') + '.optimized.mp4'; link.textContent = 'Download ↓'; row.querySelector('.video-actions').append(link);
+    const link = document.createElement('a'); link.className = 'download'; link.href = file.url; link.download = file.name.replaceAll(/[\\/]/g, '_') + '.optimized.mp4'; link.textContent = 'Download'; row.querySelector('.video-actions').append(link);
   }
 }
 function addFiles(files) {
@@ -107,14 +108,14 @@ function finish(error) {
   setBusy(false);
   queue.filter(f => f.status === 'queued' || f.status === 'processing').forEach(f => { f.status = error ? 'error' : 'cancelled'; if (error) f.error = error; updateRow(f); });
   const failed = queue.filter(f => f.status === 'error').length;
-  $('batch-status').textContent = error ? 'Batch could not finish.' : cancelled ? 'Batch cancelled. Finished videos are kept.' : failed ? `Batch finished · ${failed} failed` : 'Your videos are ready.';
+  $('batch-status').textContent = error ? 'Batch could not finish.' : cancelled ? 'Batch cancelled. Finished videos are kept.' : failed ? `Batch finished · ${failed} failed` : 'Batch complete.';
   if (error) notice(error);
   else if (!native && !cancelled) notice(webDirectory ? 'Finished videos are saved in your selected output folder.' : 'Download your finished videos from the queue. Keep this tab open until your downloads are saved.');
   updateSummary();
 }
 if (native) {
   $('download-windows').hidden = true;
-  $('mode').textContent = 'DESKTOP EDITION'; $('native-options').hidden = false; $('web-note').hidden = true;
+  $('mode').textContent = 'Desktop edition'; $('native-options').hidden = false; $('web-note').hidden = true;
   $('drop-hint').textContent = 'MP4, MOV, MKV, WebM & more · Choose a folder or select videos';
   native.onEvent(event => {
     if (event.type === 'fatal') { finish(event.error); return; }
@@ -148,7 +149,7 @@ $('clear').onclick = () => {
   if (busy) return;
   if (!native && queue.some(f => f.url) && !confirm('Clear all videos and download links? Save your downloads first.')) return;
   queue.forEach(f => { if (f.url) URL.revokeObjectURL(f.url); }); queue.length = 0; pendingProgress.clear(); $('queue').replaceChildren();
-  native?.clear().catch(error => notice(error.message)); $('batch-status').textContent = 'Ready when you are.'; notice(''); updateSummary();
+  native?.clear().catch(error => notice(error.message)); $('batch-status').textContent = 'Ready.'; notice(''); updateSummary();
 };
 const zone = $('dropzone');
 zone.ondragover = event => { event.preventDefault(); if (!busy && !native) zone.classList.add('dragging'); };

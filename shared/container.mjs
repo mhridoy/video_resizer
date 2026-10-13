@@ -1,0 +1,95 @@
+// Shipping-container load documentation: container IDs, document categories, naming and email packs.
+import { fileKind, extensionOf } from './fit-size.mjs';
+
+export const CATEGORIES = [
+  { id: 'photos', label: 'Load photos', folder: '01_Load_Photos', code: 'PHOTO' },
+  { id: 'videos', label: 'Load videos', folder: '02_Load_Videos', code: 'VIDEO' },
+  { id: 'invoices', label: 'Invoices', folder: '03_Invoices', code: 'INVOICE' },
+  { id: 'weight', label: 'Weight tickets', folder: '04_Weight_Tickets', code: 'WEIGHT' },
+  { id: 'documents', label: 'Other documents', folder: '05_Documents', code: 'DOC' },
+];
+export const categoryById = id => CATEGORIES.find(category => category.id === id) || CATEGORIES[4];
+
+const LETTER_VALUES = (() => {
+  // ISO 6346 letter values skip multiples of 11.
+  const values = {}; let value = 10;
+  for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') { if (value % 11 === 0) value++; values[letter] = value++; }
+  return values;
+})();
+
+export function checkDigit(code) {
+  const text = String(code).toUpperCase();
+  if (!/^[A-Z]{4}\d{6}$/.test(text)) return -1;
+  let sum = 0;
+  for (let i = 0; i < 10; i++) sum += (i < 4 ? LETTER_VALUES[text[i]] : Number(text[i])) * 2 ** i;
+  return sum % 11 % 10;
+}
+
+// Accepts "MSCU 123456-7", "mscu1234567" etc. Returns { id, valid } or null when it is not shaped like a container number.
+export function parseContainer(value) {
+  const compact = String(value || '').toUpperCase().replace(/[\s\-_.\/]/g, '');
+  const match = compact.match(/^([A-Z]{3}[UJZR])(\d{6})(\d)$/);
+  if (!match) return null;
+  const id = match[1] + match[2] + match[3];
+  return { id, valid: checkDigit(match[1] + match[2]) === Number(match[3]) };
+}
+
+const CONTAINER_IN_TEXT = /(?:^|[^A-Z0-9])([A-Z]{3}[UJZR])[\s\-_.]?(\d{6})[\s\-_.]?(\d)(?![0-9])/gi;
+// Finds a container number in a folder or file name. Prefers numbers whose check digit is valid.
+export function detectContainer(path) {
+  const found = [];
+  for (const segment of String(path).split(/[\\/]/)) {
+    for (const match of segment.matchAll(CONTAINER_IN_TEXT)) found.push(parseContainer(match[1] + match[2] + match[3]));
+  }
+  return found.find(item => item.valid) || found[0] || null;
+}
+
+const RULES = [
+  ['weight', /weigh|weight|w[\s_-]?slip|scale|vgm|tare|gross|kanta|kata|bridge|ticket/i],
+  ['invoice', /invoice|\binv[\s_\-.]?\d|\binv\b|commercial|proforma|\bpi[\s_-]?\d|bill(?![\s_-]*of[\s_-]*lading)|receipt|challan/i],
+  ['documents', /packing|lading|\bb[\s_-]?l\b|\bbl[\s_-]?\d|booking|seal|\beir\b|certificate|\bcoo\b|customs|declaration|manifest/i],
+];
+
+// Suggests a category from the file name and type. Users can change it before processing.
+export function categorize(path) {
+  const name = String(path).split(/[\\/]/).pop();
+  const kind = fileKind(name);
+  for (const [id, pattern] of RULES) {
+    // Photos of seals or bookings are still load photos; only scanned invoices/tickets change category.
+    if (id === 'documents' && (kind === 'image' || kind === 'video')) continue;
+    if (pattern.test(name) || pattern.test(path)) return id === 'invoice' ? 'invoices' : id;
+  }
+  if (kind === 'video') return 'videos';
+  if (kind === 'image') return 'photos';
+  return 'documents';
+}
+
+// Standard names keep shipments consistent: MSCU1234567/03_Invoices/MSCU1234567_INVOICE_01.pdf
+export function standardPath(container, categoryId, index, count, extension, originalName, rename = true) {
+  const category = categoryById(categoryId);
+  const root = container || 'Unassigned';
+  const width = Math.max(2, String(count).length);
+  const name = rename ? `${root}_${category.code}_${String(index).padStart(width, '0')}.${extension}` : originalName.split('/').pop();
+  return `${root}/${category.folder}/${name}`;
+}
+
+// Splits files into email-sized parts. ZIP stores entries uncompressed, so size = data + headers.
+// First fit keeps the original order inside each part while using as few emails as possible.
+export function packParts(files, limit) {
+  const parts = [];
+  for (const file of files) {
+    const cost = file.size + 76 + 2 * new TextEncoder().encode(file.name).length;
+    const part = parts.find(candidate => candidate.used + cost <= limit);
+    if (part) { part.files.push(file); part.used += cost; } else parts.push({ files: [file], used: 22 + cost });
+  }
+  return parts.map(part => part.files);
+}
+
+const csvCell = value => /[",\n]/.test(String(value)) ? `"${String(value).replace(/"/g, '""')}"` : String(value);
+export function manifestCsv(rows) {
+  const header = ['Container', 'Category', 'File', 'Original file', 'Original size (bytes)', 'Final size (bytes)', 'Processing'];
+  return '﻿' + [header, ...rows.map(row => [row.container, categoryById(row.category).label, row.path, row.original, row.originalSize, row.size, row.note])]
+    .map(line => line.map(csvCell).join(',')).join('\r\n') + '\r\n';
+}
+
+export { extensionOf };

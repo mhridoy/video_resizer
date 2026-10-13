@@ -1,6 +1,6 @@
 # Binary Beat — Free File Tools
 
-A searchable dashboard with **13 free tools** for videos, images, PDFs and Office documents on **Windows, macOS and the web**. Filter by file type, choose a tool, and process files locally.
+A searchable dashboard with **13 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows, macOS and the web**. Filter by file type, choose a tool, and process files locally.
 
 Batch resize and compress videos. Choose an entire folder, including subfolders, and convert every supported video to MP4. Originals are never changed.
 
@@ -17,23 +17,35 @@ The desktop app saves to a new, timestamped folder inside Videos, or inside your
 
 The web app processes locally in your browser: no video upload, account, or server-side conversion. Download individual results from the queue. Chrome and Edge also offer **Save automatically to folder**, which preserves the input hierarchy and avoids keeping every result in memory. Do not close the tab while processing or before saving downloads.
 
-## Fit to 24 MB (folder import)
+## Container Load Pack
 
-A separate all-in-one tool for sending files where uploads are capped (email, portals, messengers):
+Prepare a container's load documentation for email or upload portals with a per-file limit (24 MB by default):
 
-1. Open **Fit to 24 MB**, then **Choose folder** (or drop a folder). Subfolders are included.
-2. Keep the 24 MB limit or pick 10 / 25 / 100 MB or any value from 1 to 2048 MB.
-3. Click **Fit all files**, then **Download ZIP** or **Save to folder** (Chrome/Edge/desktop). The folder structure is kept.
+1. Open **Container Load Pack** and **Choose folder** (or drop it). Subfolders are included, so one run can cover several containers.
+2. Container numbers are read from folder and file names (e.g. `CSQU3054383/…`) and checked against the ISO 6346 check digit. Files without one use the **default container number**.
+3. Files are sorted into **Load photos, Load videos, Invoices, Weight tickets** and **Other documents** (names containing invoice, weight, VGM, ticket, kanta, B/L, packing… are recognised). Change any category in the table.
+4. Click **Prepare files**. Each container gets a ZIP, a CSV manifest and **email parts**: ZIP files that each stay under the same limit.
 
-| File type | What happens when a file is over the limit |
+Output structure with standard names enabled:
+
+```
+CSQU3054383/
+  CSQU3054383_manifest.csv
+  01_Load_Photos/CSQU3054383_PHOTO_01.jpg
+  02_Load_Videos/CSQU3054383_VIDEO_01.mp4
+  03_Invoices/CSQU3054383_INVOICE_01.pdf
+  04_Weight_Tickets/CSQU3054383_WEIGHT_01.jpg
+  05_Documents/CSQU3054383_DOC_01.docx
+```
+
+| File type | When a file is over the limit |
 | --- | --- |
-| Images (JPG, PNG, WebP, GIF, BMP, AVIF) | Lower quality step by step, then smaller dimensions. Photos become JPG; transparent images become WebP. |
-| Videos (MP4, MOV, MKV, AVI…) | Re-encoded to MP4 (H.264/AAC) at a bitrate calculated from the duration; retried at a lower bitrate if needed. Desktop uses native FFmpeg (VideoToolbox on Mac). |
-| PDF | Structural compression first (text kept). If still too large, pages are rendered as JPEG at 110 → 60 DPI (text no longer selectable). |
-| Word, PowerPoint, Excel, OpenDocument | Embedded pictures are re-encoded and downscaled; text, layout and formatting are untouched. |
-| Anything else | Copied unchanged when it fits; reported when it can't be shrunk. |
+| Photos (JPG, PNG, WebP, GIF, BMP, AVIF) | Lower quality step by step, then smaller dimensions. Transparent images become WebP. |
+| Videos (MP4, MOV, MKV, AVI…) | MP4 (H.264/AAC) at a bitrate calculated from the duration, retried lower if needed. Desktop uses native FFmpeg (VideoToolbox on Mac). |
+| PDF invoices and tickets | Lossless structural compression first; if still too large, pages are rendered at 110 → 60 DPI (text no longer selectable). |
+| Word, Excel, PowerPoint, OpenDocument | Embedded pictures are reduced; text and layout are untouched. |
 
-Files that already fit are kept byte-for-byte. Originals are never modified.
+Files already within the limit are kept byte-for-byte. Originals are never modified, and nothing is uploaded.
 
 ## macOS downloads
 
