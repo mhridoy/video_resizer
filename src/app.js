@@ -2,7 +2,7 @@ import './style.css';
 import { icon, hydrateIcons } from './icons.js';
 const $ = id => document.getElementById(id);
 const tools = [
-  { id: 'container', name: 'Container Load Pack', category: 'logistics', icon: 'container', description: 'Load photos, videos, invoices and weight tickets, each under 24 MB, named and grouped by container.', badge: 'Featured' },
+  { id: 'container', name: 'Container Load Pack', category: 'logistics', icon: 'container', description: 'Fit a container\u2019s load photos, videos, invoices and weight tickets into one 24 MB email, named and grouped.', badge: 'Featured' },
   { id: 'video-compress', name: 'Compress video', category: 'video', icon: 'compress', description: 'Reduce file size with a balanced H.264 profile.' },
   { id: 'video', name: 'Resize video', category: 'video', icon: 'resize', description: 'Scale to 1080p, 720p or 480p while keeping proportions.' },
   { id: 'video-trim', name: 'Trim video', category: 'video', icon: 'scissors', description: 'Cut clips to a start and end time.' },
