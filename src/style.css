@@ -366,3 +366,10 @@ input[type=range] { width: 100%; accent-color: var(--primary); }
   .workspace-heading h1 { font-size: 22px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+.table-id { display: block; width: 180px; margin: 3px 0; font-family: monospace; font-size: 12px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; }
+.detection-note { display: block; white-space: normal; max-width: 200px; color: var(--muted); font-size: 11px; }
+
+.shipment-thumb { width: 64px; height: 76px; object-fit: cover; border-radius: 4px; }
+.row-excluded { opacity: .55; }
+.include-photo { display: block; font-size: 12px; margin-top: 5px; }

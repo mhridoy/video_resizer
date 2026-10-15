@@ -4,6 +4,9 @@ const fs = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { BatchEngine, scanFolder } = require('./engine.cjs');
+const { shipmentAI, cancelShipmentAI } = require('./shipment-ai.cjs');
+const { SourceFolder } = require('./source-folder.cjs');
+const sourceFolder = new SourceFolder();
 const { FitVideo } = require('./fit-video.cjs');
 let win, engine, fitter, outputBase, lastOutput, saveRoot;
 const selected = new Map();
@@ -40,6 +43,16 @@ app.whenReady().then(async () => {
     engine.run(files, lastOutput, options).catch(error => { if (!win.isDestroyed()) win.webContents.send('batch-event', { type: 'fatal', error: error.message }); });
     return lastOutput;
   });
+  handle('pick-shipment-folder', async () => {
+    if (sourceFolder.running) throw new Error('Wait for folder replacement to finish.');
+    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose shipment folder — prepared files replace originals here' });
+    if (result.canceled) return null;
+    return sourceFolder.open(result.filePaths[0]);
+  });
+  handle('read-shipment-file', (token, id) => sourceFolder.read(token, id));
+  handle('replace-shipment-folder', (token, files) => sourceFolder.replace(token, files));
+  handle('shipment-ai', shipmentAI);
+  handle('shipment-ai-cancel', cancelShipmentAI);
   handle('cancel-batch', () => engine.cancel());
   handle('pick-save-folder', async () => {
     const result = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: 'Choose where to save the prepared files' });
@@ -55,18 +68,37 @@ app.whenReady().then(async () => {
     const target = path.join(saveRoot, relative);
     if (!relative || !target.startsWith(saveRoot + path.sep)) throw new Error('Invalid file name.');
     await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, data);
+    // Flat exports can be saved beside the originals: never replace an existing file.
+    try { await fs.writeFile(target, data, { flag: 'wx' }); }
+    catch (error) {
+      if (error.code === 'EEXIST') throw new Error(`A file named ${path.basename(target)} already exists. Choose an empty output folder.`);
+      throw error;
+    }
     return target;
   });
   handle('open-save-folder', async () => { if (saveRoot) { const error = await shell.openPath(saveRoot); if (error) throw new Error(error); } });
   fitter = new FitVideo(binary);
-  handle('fit-video', async (file, targetBytes, mute) => {
-    if (fitter.child) throw new Error('Wait for the current video.');
-    if (typeof file !== 'string' || !Number.isSafeInteger(targetBytes) || targetBytes < 1024 ** 2) throw new Error('Invalid video request.');
-    const result = await fitter.fit(file, targetBytes, { mute: mute === true }, progress => { if (!win.isDestroyed()) win.webContents.send('fit-progress', progress); });
-    return new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+  let fitting = false, fitEpoch = 0;
+  handle('fit-video', async (file, targetBytes, mute, bytes) => {
+    if (fitting || fitter.child) throw new Error('Wait for the current video.');
+    if (typeof file !== 'string' || !Number.isSafeInteger(targetBytes) || targetBytes < 64 * 1024) throw new Error('Invalid video request.');
+    fitting = true; const requestEpoch = fitEpoch;
+    let temporary;
+    try {
+      if (bytes !== undefined) {
+        if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > 1024 ** 3) throw new Error('Invalid ZIP video contents (maximum 1 GB).');
+        const extension = path.extname(file).toLowerCase();
+        if (!/^\.(mp4|mov|mkv|avi|webm|m4v|mpeg|mpg|3gp|ts|mts|m2ts|wmv|flv|vob|ogv)$/.test(extension)) throw new Error('Unsupported video extension.');
+        temporary = await fs.mkdtemp(path.join(app.getPath('temp'), 'binary-beat-import-'));
+        file = path.join(temporary, `input${extension}`);
+        await fs.writeFile(file, bytes, { flag: 'wx', mode: 0o600 });
+      }
+      if (requestEpoch !== fitEpoch) throw new Error('Cancelled');
+      const result = await fitter.fit(file, targetBytes, { mute: mute === true }, progress => { if (!win.isDestroyed()) win.webContents.send('fit-progress', progress); });
+      return new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+    } finally { fitting = false; if (temporary) await fs.rm(temporary, { recursive: true, force: true }); }
   });
-  handle('fit-cancel', () => fitter.cancel());
+  handle('fit-cancel', () => { ++fitEpoch; fitter.cancel(); });
   handle('open-output', async () => { if (lastOutput) { const error = await shell.openPath(lastOutput); if (error) throw new Error(error); } });
   handle('clear-input', () => { if (!engine.running) selected.clear(); });
   function createWindow() {
@@ -74,6 +106,7 @@ app.whenReady().then(async () => {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.on('close', event => {
+      if (sourceFolder.running) { event.preventDefault(); return; }
       if (engine.running || fitter?.child) {
         const choice = dialog.showMessageBoxSync(win, { type: 'question', buttons: ['Keep converting', 'Cancel and close'], defaultId: 0, cancelId: 0, message: 'A batch is still running. Cancel it and close?' });
         if (choice === 0) event.preventDefault(); else { engine.cancel(); fitter?.cancel(); }
@@ -87,4 +120,4 @@ app.whenReady().then(async () => {
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 app.on('window-all-closed', () => { engine?.cancel(); fitter?.cancel(); if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { engine?.cancel(); fitter?.cancel(); });
+app.on('before-quit', () => { cancelShipmentAI(); engine?.cancel(); fitter?.cancel(); });

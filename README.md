@@ -2,7 +2,7 @@
 
 A searchable dashboard with **13 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows, macOS and the web**. Filter by file type, choose a tool, and process files locally.
 
-Batch resize and compress videos. Choose an entire folder, including subfolders, and convert every supported video to MP4. Originals are never changed.
+Batch resize and compress videos, or prepare shipment evidence. The video tools preserve originals; Container Load Pack replaces files in the selected writable shipment folder after successful preparation.
 
 Web app: https://video-resizer-eta.vercel.app/
 
@@ -15,35 +15,48 @@ Web app: https://video-resizer-eta.vercel.app/
 
 The desktop app saves to a new, timestamped folder inside Videos, or inside your selected output directory. Subfolders are preserved. Outputs include the source extension in their names, so `clip.mov` and `clip.mp4` cannot overwrite one another. Already generated `Video Resizer Output…` folders are excluded from scans.
 
-The web app processes locally in your browser: no video upload, account, or server-side conversion. Download individual results from the queue. Chrome and Edge also offer **Save automatically to folder**, which preserves the input hierarchy and avoids keeping every result in memory. Do not close the tab while processing or before saving downloads.
+The web app compresses files locally in your browser without uploading videos. Optional shipment Pro AI sends bounded photo/PDF previews to the server. Download individual results from the queue. Chrome and Edge also offer **Save automatically to folder**, which preserves the input hierarchy and avoids keeping every result in memory. Do not close the tab while processing or before saving downloads.
 
 ## Container Load Pack
 
 Prepare a container's load documentation so one email carries all of it. The limit is the **total of all attachments in one email** (24 MB by default), not a per-file size:
 
-1. Open **Container Load Pack** and **Choose folder** (or drop it). Subfolders are included, so one run can cover several containers. You can also drop a **ZIP** — including a WhatsApp **Export chat** archive — and the photos, videos and documents inside it are imported directly, so you do not have to save each WhatsApp attachment by hand. The chat transcript and macOS junk files are ignored.
-2. The container's files share that one budget. Files that already fit are left alone, invoices and weight tickets keep enough bytes to stay readable, and the video absorbs most of the squeeze (it is weighted to draw a larger share). A set too large to stay usable in one email is planned as several.
-3. Container numbers are read from folder and file names (e.g. `CSQU3054383/…`) and checked against the ISO 6346 check digit. Files without one use the **default container number**.
-4. Files are sorted into **Load photos, Load videos, Invoices, Weight tickets** and **Other documents** (names containing invoice, weight, VGM, ticket, kanta, B/L, packing… are recognised). Change any category in the table.
-5. Click **Prepare files**. Every file comes out as its own file, ready to attach to an email one by one:
-   - **Save** on any row saves that single file.
-   - **Save all files** saves them individually to your Downloads folder.
-   - **Save to folder** writes the container folder structure straight to disk (desktop app, Chrome or Edge).
-   - A **ZIP** per container and a **CSV manifest** are there when a portal wants one, and when a container needs more than one email, each email's files are listed and saved together.
+1. Open **Container Load Pack**, enter your app's AI access code, and import a WhatsApp **Export chat ZIP**, folder, or files. Preparation starts automatically (disable **Prepare automatically** to review first). Chat transcripts are read locally as data for shipment numbers, then omitted from the output.
+2. **Pro AI** uses a server-side vision model through Vercel AI Gateway. Reduced photo previews and PDF first-page previews are sent for classification, container/seal reading, visual loading progress and quality scoring. Original videos, raw chat transcripts and compression stay local. API keys never reach the browser. Files and embedded text are untrusted data, never instructions to the model.
+3. **4 photos per loading stage** keeps up to **four distinct photos each at 0%, 25%, 50%, 75%, and 100%** per shipment, preferring quality and excluding similar shots. Percentages are visual approximations, never inferred from file order. Missing stages are not fabricated; if a stage has fewer than four distinct photos, all available ones remain. Uncertain photos stay for review, so an ambiguous import can retain more than twenty loading images. Every video, seal, closed-door photo, weight ticket and document is kept.
+4. Container/seal numbers, document types, stages and inclusion remain editable. **Unreadable seal numbers never cause seal photos to be dropped.** A unique verified container can be shared within the same source import; conflicting numbers require review. Local mode uses on-device OCR (first three PDF pages), and stages need manual selection. It does not pretend OCR measured loading progress.
+5. Selection, flat naming and compression run automatically. **The entire batch shares 24,000,000 bytes by default**, including every container and ZIP overhead. Small files keep their bytes; videos receive a larger compression budget. If any retained file fails, processing is cancelled, or the total cannot fit, the package is marked incomplete and combined export stays unavailable. The app never silently drops a video or splits the batch into extra emails.
+6. **Choose folder** opens a shipment folder with write access. After the complete batch fits the limit, prepared files automatically replace imported originals **inside that same folder**. Excluded loading photos and imported chat transcripts are removed; outputs are flattened to the root and empty source subfolders are removed. No CSV, extra output folder or ZIP is generated. Hidden files, skipped system files and new unrelated files are left alone. A ZIP added through **Add files or ZIP** remains a download workflow; the source archive is not overwritten. A ZIP inside a selected writable folder is replaced by its prepared contents along with the other imported files.
+7. Folder replacement is available in the desktop app and browsers exposing `showDirectoryPicker` with write access. The app's **Choose folder** button requests that access; a read-only upload cannot authorize filesystem writes. Supported directory drops also acquire a writable folder handle. Import one replacement folder at a time. Download actions remain available for ZIP uploads or optional extra copies, and never generate a CSV.
 
-Mail servers measure the encoded message and base64 inflates attachments by about 37%, so **Leave room for encoding** targets the limit after encoding. Turn it on if a mail server rejects attachments that look small enough.
+Replacement stages every output and recovery copies of imported originals in a temporary `.binary-beat-recovery-*` folder. Only after all preparation and source-change checks pass does it remove originals and install outputs. It restores removed originals on a write failure; success removes temporary recovery data. A crash, lost permission or disk failure can leave recovery data behind: stop editing that folder and restore files from its `originals/` subtree to their matching paths before reimporting. `recovery.json` records source/output names. Do not delete recovery data until restoration is complete. This is a recoverable multi-file operation, not an atomic filesystem transaction. Avoid editing the folder concurrently. Replacing in place removes the extra download/save step; it does not shorten AI analysis or video encoding.
 
-Output structure with standard names enabled:
+### Enable Pro AI
+
+Copy `.env.example` to `.env.local` for local development. Set `AI_GATEWAY_API_KEY` and a long random `SHIPMENT_AI_ACCESS_TOKEN`; run `npm run dev`. The access token is the app's access code and stays only in page memory when entered. It is not a provider API key. Never prefix secrets with `VITE_` or commit them.
+
+On Vercel, configure the access token as a server environment secret and enable AI Gateway credentials/credits (automatic OIDC can replace the API key), then deploy. The default model is `google/gemini-3.1-pro-preview`; override `SHIPMENT_AI_MODEL` with a Gateway model supporting vision and structured output. Configure Gateway spend limits and restrict access-code distribution. Model requests incur provider charges; a frontend build alone does not activate the service. When configuration or credits are missing, the app reports it and retains the import for retry instead of silently substituting fake AI results.
+
+The API accepts only bounded JPEG previews, checks the access code, validates exact response coverage and classifications, and does not persist uploads. Provider processing follows your Gateway/provider account settings. Desktop calls the same service through its trusted main process; `BINARY_BEAT_AI_URL` can override the default HTTPS endpoint when launching Electron. ZIP videos are staged temporarily for native conversion and cleaned up afterward (1 GB per extracted video limit). No provider credentials are bundled in installers.
+
+Shipping documents are named by detected type: `BOOKING_CONFIRMATION`, `CONTAINER_RELEASE_ORDER`, `CONTAINER_PLACEMENT_ORDER`, `TERMINAL_HANDLING`, `DELIVERY_ORDER`, `BILL_OF_LADING`, `EIR`, or `SHIPPING_INSTRUCTIONS`. You can change the type in the table.
+
+Example of a flat output (after reviewing the suggested numbers and stages):
 
 ```
-CSQU3054383/
-  CSQU3054383_manifest.csv
-  01_Load_Photos/CSQU3054383_PHOTO_01.jpg
-  02_Load_Videos/CSQU3054383_VIDEO_01.mp4
-  03_Invoices/CSQU3054383_INVOICE_01.pdf
-  04_Weight_Tickets/CSQU3054383_WEIGHT_01.jpg
-  05_Documents/CSQU3054383_DOC_01.docx
+KMTU9344936_SEAL-SADMM2600430_LOADING_0PCT_01.jpg
+KMTU9344936_SEAL-SADMM2600430_LOADING_25PCT_02.jpg
+KMTU9344936_SEAL-SADMM2600430_LOADING_50PCT_03.jpg
+KMTU9344936_SEAL-SADMM2600430_LOADING_75PCT_04.jpg
+KMTU9344936_SEAL-SADMM2600430_LOADING_100PCT_05.jpg
+KMTU9344936_SEAL-SADMM2600430_VIDEO_01.mp4
+KMTU9344936_SEAL-SADMM2600430_SEAL_01.jpg
+KMTU9344936_SEAL-SADMM2600430_WEIGHT_01.jpg
+KMTU9344936_SEAL-SADMM2600430_TERMINAL_HANDLING_01.jpg
+KMTU9344936_SEAL-SADMM2600430_CONTAINER_PLACEMENT_ORDER_02.jpg
 ```
+
+Mail servers measure the encoded message and base64 inflates attachments by about 37%. **Leave room for encoding** reserves that overhead. OCR workers, language data and WASM are bundled with the app and loaded locally on demand; local mode does not use an external OCR service. Pro AI requires the server setup above.
 
 | File type | When a file is over the limit |
 | --- | --- |
@@ -52,7 +65,7 @@ CSQU3054383/
 | PDF invoices and tickets | Lossless structural compression first; if still too large, pages are rendered at 110 → 60 DPI (text no longer selectable). |
 | Word, Excel, PowerPoint, OpenDocument | Embedded pictures are reduced; text and layout are untouched. |
 
-Files already within the limit are kept byte-for-byte. Originals are never modified, and nothing is uploaded.
+Files already within the limit are kept byte-for-byte. The container folder workflow replaces originals after successful preparation; download workflows preserve them. Compression is local; enabled Pro AI sends shipment previews for analysis.
 
 ## macOS downloads
 
@@ -109,7 +122,7 @@ npm test
 npm run package
 ```
 
-Package on the target operating system and CPU architecture. The workflow builds Windows x64, ensuring it receives the correct native FFmpeg binary. Outputs appear under `release/`. The app uses a sandboxed, context-isolated Electron renderer with a narrow IPC bridge; only files chosen through native dialogs can be processed by the native engine.
+Package on the target operating system and CPU architecture. The workflow builds Windows x64, ensuring it receives the correct native FFmpeg binary. Outputs appear under `release/`. The app uses a sandboxed, context-isolated Electron renderer with a narrow IPC bridge; native conversion handles chosen files and temporarily staged ZIP video bytes through validated IPC.
 
 ## Verification
 

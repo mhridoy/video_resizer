@@ -7,7 +7,16 @@ contextBridge.exposeInMainWorld('desktop', {
   openOutput: () => ipcRenderer.invoke('open-output'),
   clear: () => ipcRenderer.invoke('clear-input'),
   platform: process.platform,
-  fitVideo: (file, targetBytes, mute) => ipcRenderer.invoke('fit-video', webUtils.getPathForFile(file), targetBytes, mute === true),
+  pickShipmentFolder: () => ipcRenderer.invoke('pick-shipment-folder'),
+  readShipmentFile: (token, id) => ipcRenderer.invoke('read-shipment-file', token, id),
+  replaceShipmentFolder: (token, files) => ipcRenderer.invoke('replace-shipment-folder', token, files),
+  shipmentAI: (body, accessCode) => ipcRenderer.invoke('shipment-ai', body, accessCode),
+  cancelShipmentAI: () => ipcRenderer.invoke('shipment-ai-cancel'),
+  fitVideo: async (file, targetBytes, mute) => {
+    const filePath = webUtils.getPathForFile(file);
+    if (!filePath && file.size > 1024 ** 3) throw new Error('ZIP videos above 1 GB must be extracted and imported as files.');
+    return ipcRenderer.invoke('fit-video', filePath || file.name, targetBytes, mute === true, filePath ? undefined : new Uint8Array(await file.arrayBuffer()));
+  },
   cancelFit: () => ipcRenderer.invoke('fit-cancel'),
   onFitProgress: fn => { const listener = (_event, value) => fn(value); ipcRenderer.on('fit-progress', listener); return () => ipcRenderer.removeListener('fit-progress', listener); },
   pickSaveFolder: () => ipcRenderer.invoke('pick-save-folder'),

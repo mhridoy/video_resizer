@@ -4,11 +4,14 @@ import { fileKind, extensionOf } from './fit-size.mjs';
 export const CATEGORIES = [
   { id: 'photos', label: 'Load photos', folder: '01_Load_Photos', code: 'PHOTO' },
   { id: 'videos', label: 'Load videos', folder: '02_Load_Videos', code: 'VIDEO' },
+  { id: 'closed', label: 'Closed container doors', code: 'CLOSED_DOORS' },
+  { id: 'seals', label: 'Seal photos', code: 'SEAL' },
   { id: 'invoices', label: 'Invoices', folder: '03_Invoices', code: 'INVOICE' },
   { id: 'weight', label: 'Weight tickets', folder: '04_Weight_Tickets', code: 'WEIGHT' },
+  { id: 'shipping', label: 'Shipping line documents', code: 'SHIPPING_DOC' },
   { id: 'documents', label: 'Other documents', folder: '05_Documents', code: 'DOC' },
 ];
-export const categoryById = id => CATEGORIES.find(category => category.id === id) || CATEGORIES[4];
+export const categoryById = id => CATEGORIES.find(category => category.id === id) || CATEGORIES.at(-1);
 
 const LETTER_VALUES = (() => {
   // ISO 6346 letter values skip multiples of 11.
@@ -54,6 +57,7 @@ const RULES = [
 export function categorize(path) {
   const name = String(path).split(/[\\/]/).pop();
   const kind = fileKind(name);
+  if (kind === 'image' && /\bseal\b/i.test(name.replace(/_/g, ' '))) return 'seals';
   for (const [id, pattern] of RULES) {
     // Photos of seals or bookings are still load photos; only scanned invoices/tickets change category.
     if (id === 'documents' && (kind === 'image' || kind === 'video')) continue;
@@ -64,13 +68,37 @@ export function categorize(path) {
   return 'documents';
 }
 
-// Standard names keep shipments consistent: MSCU1234567/03_Invoices/MSCU1234567_INVOICE_01.pdf
-export function standardPath(container, categoryId, index, count, extension, originalName, rename = true) {
+// All outputs live directly in the selected folder / ZIP root.
+export function standardPath(container, categoryId, index, count, extension, originalName, rename = true, seal = '', stage = '', documentType = '') {
   const category = categoryById(categoryId);
   const root = container || 'Unassigned';
   const width = Math.max(2, String(count).length);
-  const name = rename ? `${root}_${category.code}_${String(index).padStart(width, '0')}.${extension}` : originalName.split('/').pop();
-  return `${root}/${category.folder}/${name}`;
+  const prefix = seal ? `${root}_SEAL-${safeIdentifier(seal)}` : root;
+  const code = categoryId === 'shipping' && SHIPPING_DOCUMENTS.some(type => type.id === documentType) ? documentType : stage !== '' && categoryId === 'photos' ? `LOADING_${stage}PCT` : category.code;
+  return rename ? `${prefix}_${code}_${String(index).padStart(width, '0')}.${extension}` : originalName.split(/[\\/]/).pop();
+}
+
+export const SHIPPING_DOCUMENTS = [
+  { id: 'SHIPPING_DOC', label: 'Shipping document (review type)' },
+  { id: 'BOOKING_CONFIRMATION', label: 'Booking confirmation' },
+  { id: 'CONTAINER_RELEASE_ORDER', label: 'Container release order' },
+  { id: 'CONTAINER_PLACEMENT_ORDER', label: 'Container placement order' },
+  { id: 'TERMINAL_HANDLING', label: 'Terminal handling document' },
+  { id: 'DELIVERY_ORDER', label: 'Delivery order' },
+  { id: 'BILL_OF_LADING', label: 'Bill of lading' },
+  { id: 'EIR', label: 'Equipment interchange receipt' },
+  { id: 'SHIPPING_INSTRUCTIONS', label: 'Shipping instructions' },
+];
+
+export const safeIdentifier = value => String(value || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 40);
+
+export function uniqueOutputName(name, used) {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+  let result = name, number = 2;
+  while (used.has(result.toLowerCase())) result = `${stem}_${number++}${ext}`;
+  used.add(result.toLowerCase());
+  return result;
 }
 
 // Splits files into email-sized parts. ZIP stores entries uncompressed, so size = data + headers.
@@ -111,8 +139,8 @@ export function packParts(files, limit, overhead = file => 76 + 2 * new TextEnco
 
 const csvCell = value => /[",\n]/.test(String(value)) ? `"${String(value).replace(/"/g, '""')}"` : String(value);
 export function manifestCsv(rows) {
-  const header = ['Container', 'Category', 'File', 'Original file', 'Original size (bytes)', 'Final size (bytes)', 'Processing'];
-  return '﻿' + [header, ...rows.map(row => [row.container, categoryById(row.category).label, row.path, row.original, row.originalSize, row.size, row.note])]
+  const header = ['Container', 'Seal', 'Category', 'File', 'Original file', 'Original size (bytes)', 'Final size (bytes)', 'Processing'];
+  return '﻿' + [header, ...rows.map(row => [row.container, row.seal || '', categoryById(row.category).label, row.path, row.original, row.originalSize, row.size, row.note])]
     .map(line => line.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
 
@@ -124,5 +152,7 @@ export function importableFromZip(name) {
   if (!name || name.endsWith('/')) return false;
   const segments = String(name).split('/');
   if (segments.some(part => part.startsWith('.') || part === '__MACOSX')) return false;
-  return !/^_chat\.txt$/i.test(segments[segments.length - 1]);
+  return !isChatTranscript(name);
 }
+
+export const isChatTranscript = name => /^(?:_chat|WhatsApp Chat(?: with| -)?.*)\.txt$/i.test(String(name).split('/').pop());
