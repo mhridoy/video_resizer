@@ -19,16 +19,19 @@ The web app processes locally in your browser: no video upload, account, or serv
 
 ## Container Load Pack
 
-Prepare a container's load documentation for email or upload portals with a per-file limit (24 MB by default):
+Prepare a container's load documentation so one email carries all of it. The limit is the **total of all attachments in one email** (24 MB by default), not a per-file size:
 
 1. Open **Container Load Pack** and **Choose folder** (or drop it). Subfolders are included, so one run can cover several containers. You can also drop a **ZIP** — including a WhatsApp **Export chat** archive — and the photos, videos and documents inside it are imported directly, so you do not have to save each WhatsApp attachment by hand. The chat transcript and macOS junk files are ignored.
-2. Container numbers are read from folder and file names (e.g. `CSQU3054383/…`) and checked against the ISO 6346 check digit. Files without one use the **default container number**.
-3. Files are sorted into **Load photos, Load videos, Invoices, Weight tickets** and **Other documents** (names containing invoice, weight, VGM, ticket, kanta, B/L, packing… are recognised). Change any category in the table.
-4. Click **Prepare files**. Every file comes out as its own file, ready to attach to an email one by one:
+2. The container's files share that one budget. Files that already fit are left alone, invoices and weight tickets keep enough bytes to stay readable, and the video absorbs most of the squeeze (it is weighted to draw a larger share). A set too large to stay usable in one email is planned as several.
+3. Container numbers are read from folder and file names (e.g. `CSQU3054383/…`) and checked against the ISO 6346 check digit. Files without one use the **default container number**.
+4. Files are sorted into **Load photos, Load videos, Invoices, Weight tickets** and **Other documents** (names containing invoice, weight, VGM, ticket, kanta, B/L, packing… are recognised). Change any category in the table.
+5. Click **Prepare files**. Every file comes out as its own file, ready to attach to an email one by one:
    - **Save** on any row saves that single file.
    - **Save all files** saves them individually to your Downloads folder.
    - **Save to folder** writes the container folder structure straight to disk (desktop app, Chrome or Edge).
-   - A **ZIP** per container and a **CSV manifest** are there when a portal wants one, and if a container needs more than one email, ready-made **email parts** each stay under the limit.
+   - A **ZIP** per container and a **CSV manifest** are there when a portal wants one, and when a container needs more than one email, each email's files are listed and saved together.
+
+Mail servers measure the encoded message and base64 inflates attachments by about 37%, so **Leave room for encoding** targets the limit after encoding. Turn it on if a mail server rejects attachments that look small enough.
 
 Output structure with standard names enabled:
 

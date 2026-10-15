@@ -1,12 +1,12 @@
 import { fileKind, limitBytes, safeRelativePath, extensionOf } from '../shared/fit-size.mjs';
-import { CATEGORIES, categoryById, parseContainer, detectContainer, categorize, standardPath, packParts, manifestCsv, importableFromZip } from '../shared/container.mjs';
+import { CATEGORIES, categoryById, parseContainer, detectContainer, categorize, standardPath, packParts, manifestCsv, importableFromZip, allocateBudget, SHARE_WEIGHT, filesPerEmail } from '../shared/container.mjs';
 import { shrinkFile, cancelShrink } from './shrink.js';
 import { icon } from './icons.js';
 
 const $ = id => document.getElementById(id);
 const native = window.desktop;
 const KIND_ICON = { image: 'image', video: 'video', pdf: 'file', doc: 'file', other: 'file' };
-const STATE = { queued: 'Pending', processing: 'Processing', done: 'Reduced', kept: 'Within limit', error: 'Failed', cancelled: 'Cancelled' };
+const STATE = { queued: 'Pending', processing: 'Processing', done: 'Reduced', kept: 'Kept as is', error: 'Failed', cancelled: 'Cancelled' };
 let items = [], busy = false, cancelled = false, epoch = 0, packs = [], nextId = 1;
 
 const formatSize = n => !n ? '0 KB' : n < 1024 ** 2 ? `${Math.max(0.1, n / 1024).toFixed(1)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`;
@@ -14,6 +14,8 @@ const setStatus = message => { $('cp-status').textContent = message; };
 const pending = () => packs.length && items.some(item => item.output && !item.saved);
 const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; };
 const reference = () => $('cp-reference').value.trim().replace(/[^\w.-]+/g, '-').slice(0, 40);
+// Mail servers measure the encoded message, and base64 inflates attachments by about 37%.
+const emailBudget = () => Math.floor(limitBytes($('cp-limit').value) / ($('cp-headroom').checked ? 1.37 : 1));
 
 function defaultContainer() {
   const parsed = parseContainer($('cp-container').value);
@@ -70,6 +72,16 @@ async function addFiles(input) {
 function sortItems() {
   const order = Object.fromEntries(CATEGORIES.map((category, index) => [category.id, index]));
   items.sort((a, b) => containerOf(a).localeCompare(containerOf(b)) || order[a.category] - order[b.category] || a.path.localeCompare(b.path, undefined, { numeric: true }));
+}
+
+function groupByContainer() {
+  const groups = new Map();
+  for (const item of items) {
+    const key = containerOf(item);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  return [...groups.values()];
 }
 
 function saveBlob(blob, filename) {
@@ -150,7 +162,7 @@ function render() {
 function setBusy(value) {
   busy = value;
   $('container-panel').setAttribute('aria-busy', String(value));
-  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-container', 'cp-reference', 'cp-rename', 'cp-mute']) $(id).disabled = value;
+  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-reference', 'cp-rename', 'cp-mute']) $(id).disabled = value;
   document.querySelectorAll('[data-cp-limit], #cp-results button').forEach(button => { button.disabled = value; });
   $('cp-start').hidden = value; $('cp-cancel').hidden = !value; $('cp-progress-wrap').hidden = !value;
   items.forEach(rowFor); render();
@@ -174,12 +186,22 @@ function syncContainerField() {
 // ---------- Processing ----------
 $('cp-start').onclick = async () => {
   if (busy || !items.length) return;
-  let target;
-  try { target = limitBytes($('cp-limit').value); } catch (error) { setStatus(error.message); $('cp-limit').focus(); return; }
+  let budget;
+  try { budget = emailBudget(); } catch (error) { setStatus(error.message); $('cp-limit').focus(); return; }
   if (pending() && !confirm('Prepare the files again? Downloads you have not saved will be replaced.')) return;
   const mute = $('cp-mute').checked;
   cancelled = false; const token = ++epoch;
-  const queue = items.filter(item => !item.output || item.target !== target || item.mute !== mute);
+  // One email per container: its files share the budget instead of each getting the full limit.
+  // A set too large to stay usable in a single email is planned as several.
+  const perEmail = filesPerEmail(budget);
+  for (const group of groupByContainer()) {
+    for (let start = 0; start < group.length; start += perEmail) {
+      const chunk = group.slice(start, start + perEmail);
+      const targets = allocateBudget(chunk.map(item => item.file.size), budget, chunk.map(item => SHARE_WEIGHT[item.kind] || 1));
+      chunk.forEach((item, index) => { item.plan = targets[index]; });
+    }
+  }
+  const queue = items.filter(item => !item.output || item.appliedTarget !== item.plan || item.mute !== mute);
   queue.forEach(item => Object.assign(item, { status: 'queued', progress: 0, output: undefined, sendName: '', error: '', note: '' }));
   clearPacks(); setBusy(true);
   let last = 0;
@@ -196,9 +218,9 @@ $('cp-start').onclick = async () => {
     };
     await new Promise(resolve => setTimeout(resolve, 0));
     try {
-      const result = await shrinkFile(item, target, job);
-      if (result.blob.size > target) throw Error('Still above the limit.');
-      Object.assign(item, { output: result.blob, outputExtension: extensionOf(result.path) || extensionOf(item.path), note: result.note, target, mute, status: result.kept ? 'kept' : 'done' });
+      const result = await shrinkFile(item, item.plan, job);
+      if (result.blob.size > item.plan) throw Error('Still above its share of the email.');
+      Object.assign(item, { output: result.blob, outputExtension: extensionOf(result.path) || extensionOf(item.path), note: result.note, appliedTarget: item.plan, mute, status: result.kept ? 'kept' : 'done' });
     } catch (error) {
       item.status = cancelled ? 'cancelled' : 'error';
       item.error = cancelled ? '' : error.message || 'Out of memory. Use the desktop app for very large files.';
@@ -206,7 +228,7 @@ $('cp-start').onclick = async () => {
     item.progress = 100; rowFor(item);
   }
   $('cp-progress').value = 100;
-  setBusy(false); buildPacks(target);
+  setBusy(false); buildPacks(budget);
 };
 
 $('cp-cancel').onclick = async () => {
@@ -217,7 +239,7 @@ $('cp-cancel').onclick = async () => {
 // ---------- Packaging ----------
 function clearPacks() { packs = []; $('cp-results').hidden = true; $('cp-packs').replaceChildren(); }
 
-function buildPacks(target) {
+function buildPacks(budget) {
   const rename = $('cp-rename').checked, ref = reference();
   const groups = new Map();
   for (const item of items.filter(entry => entry.output)) {
@@ -238,25 +260,28 @@ function buildPacks(target) {
     const manifest = new Blob([manifestCsv(files.map(file => ({ container, category: file.item.category, path: file.name, original: file.item.path, originalSize: file.item.file.size, size: file.size, note: file.item.note })))], { type: 'text/csv' });
     const manifestFile = { name: `${container}/${container}_manifest.csv`, blob: manifest, size: manifest.size };
     const base = `${container}${ref ? `_${ref}` : ''}`;
-    return { container, base, files, manifest: manifestFile, parts: packParts([manifestFile, ...files], target) };
+    // Attachments are sent as they are, so an email only carries the files' own bytes.
+    return { container, base, files, manifest: manifestFile, emails: packParts(files, budget, () => 0) };
   });
   items.forEach(rowFor);
-  renderPacks(target);
+  renderPacks(budget);
 }
 
-function renderPacks(target) {
+function renderPacks(budget) {
   const failed = items.filter(item => item.status === 'error');
   const ready = packs.reduce((sum, pack) => sum + pack.files.length, 0);
+  const emails = packs.reduce((sum, pack) => sum + pack.emails.length, 0);
   const reduced = items.filter(item => item.status === 'done');
   const before = reduced.reduce((sum, item) => sum + item.file.size, 0), after = reduced.reduce((sum, item) => sum + item.output.size, 0);
   $('cp-results-title').textContent = ready ? `${ready} ${ready === 1 ? 'file is' : 'files are'} ready to send` : 'No files are ready';
-  $('cp-results-sub').textContent = `Every file is under ${formatSize(target)}, ready to attach one by one. Save them to a folder, or use Save on any row.`;
-  const stats = [[ready, 'Files ready'], [reduced.length, 'Reduced'], [failed.length, 'Need attention'], [before ? `${Math.round((1 - after / before) * 100)}%` : '—', 'Size saved']];
+  $('cp-results-sub').textContent = `Each email's attachments add up to less than ${formatSize(budget)}${$('cp-headroom').checked ? ' once encoded' : ''}. Attach the files of one email together.`;
+  const stats = [[ready, 'Files ready'], [emails, emails === 1 ? 'Email' : 'Emails'], [failed.length, 'Need attention'], [before ? `${Math.round((1 - after / before) * 100)}%` : '—', 'Size saved']];
   $('cp-stats').replaceChildren(...stats.map(([value, label]) => { const box = el('div', 'stat'); box.append(el('strong', '', String(value)), el('span', '', label)); return box; }));
   const cards = packs.map(pack => {
     const card = el('article', 'pack');
     const head = el('div', 'pack-head');
-    const title = el('div'); title.append(el('h3', 'mono', pack.container), el('p', '', `${pack.files.length} files · ${formatSize(pack.files.reduce((sum, file) => sum + file.size, 0))}`));
+    const total = pack.files.reduce((sum, file) => sum + file.size, 0);
+    const title = el('div'); title.append(el('h3', 'mono', pack.container), el('p', '', `${pack.files.length} files · ${formatSize(total)} · ${pack.emails.length} ${pack.emails.length === 1 ? 'email' : 'emails'}`));
     const actions = el('div', 'pack-actions');
     const each = el('button', 'btn btn-primary'); each.innerHTML = `${icon('arrow-down')}<span>Save ${pack.files.length} files</span>`;
     each.onclick = () => saveFiles(pack.files, `${pack.container}: `);
@@ -271,13 +296,14 @@ function renderPacks(target) {
       if (count) counts.append(el('span', 'chip', `${count} ${category.label}`));
     }
     card.append(head, counts);
-    if (pack.parts.length > 1) {
+    if (pack.emails.length > 1) {
       const parts = el('div', 'pack-parts');
-      parts.append(el('span', 'parts-label', `Needs ${pack.parts.length} emails · ZIP per email`));
-      pack.parts.forEach((part, index) => {
+      parts.append(el('span', 'parts-label', `Too large for one email — send ${pack.emails.length}:`));
+      pack.emails.forEach((group, index) => {
         const button = el('button', 'btn btn-secondary btn-sm');
-        button.textContent = `Part ${index + 1} · ${formatSize(part.reduce((sum, file) => sum + file.size, 0))}`;
-        button.onclick = () => downloadPack(pack, part, `${pack.base}_Part${index + 1}of${pack.parts.length}.zip`);
+        button.textContent = `Email ${index + 1} · ${group.length} files · ${formatSize(group.reduce((sum, file) => sum + file.size, 0))}`;
+        button.title = group.map(file => file.name.split('/').pop()).join(', ');
+        button.onclick = () => saveFiles(group, `Email ${index + 1}: `);
         parts.append(button);
       });
       card.append(parts);
@@ -371,8 +397,9 @@ $('cp-clear').onclick = () => {
   items = []; clearPacks(); render(); setStatus('');
 };
 $('cp-limit').addEventListener('input', () => { syncPresets(); clearPacks(); });
+$('cp-headroom').addEventListener('change', clearPacks);
 $('cp-container').addEventListener('input', () => { syncContainerField(); clearPacks(); sortItems(); items.forEach(rowFor); render(); });
-for (const id of ['cp-reference', 'cp-rename']) $(id).addEventListener('input', () => { if (packs.length) buildPacks(limitBytes($('cp-limit').value)); });
+for (const id of ['cp-reference', 'cp-rename']) $(id).addEventListener('input', () => { if (packs.length) buildPacks(emailBudget()); });
 document.querySelectorAll('[data-cp-limit]').forEach(button => { button.onclick = () => { $('cp-limit').value = button.dataset.cpLimit; syncPresets(); clearPacks(); }; });
 
 const zone = $('cp-dropzone');

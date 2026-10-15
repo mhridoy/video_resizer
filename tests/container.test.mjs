@@ -65,3 +65,33 @@ test('imports files out of a WhatsApp chat-export ZIP and skips its noise', asyn
   assert.equal(importableFromZip('folder/'), false);
   assert.equal(importableFromZip('photos/IMG_1.jpg'), true);
 });
+
+test('shares one email budget across its attachments', async () => {
+  const { allocateBudget } = await import('../shared/container.mjs');
+  const MB = 1024 ** 2;
+  // A small invoice keeps its size; the oversized video absorbs the rest of the budget.
+  assert.deepEqual(allocateBudget([2 * MB, 100 * MB], 24 * MB), [2 * MB, 22 * MB]);
+  // Nothing fits an equal share, so every file gets the same slice.
+  assert.deepEqual(allocateBudget([40 * MB, 40 * MB, 40 * MB], 24 * MB), [8 * MB, 8 * MB, 8 * MB]);
+  // A set that already fits is left completely alone.
+  assert.deepEqual(allocateBudget([1 * MB, 2 * MB], 24 * MB), [1 * MB, 2 * MB]);
+  for (const targets of [allocateBudget([30 * MB, 1 * MB, 9 * MB, 60 * MB], 24 * MB), allocateBudget(Array(30).fill(5 * MB), 24 * MB)]) {
+    assert.ok(targets.reduce((sum, value) => sum + value, 0) <= 24 * MB);
+    assert.ok(targets.every(value => value > 0));
+  }
+  assert.deepEqual(allocateBudget([], 24 * MB), []);
+  assert.throws(() => allocateBudget([1], 0));
+});
+
+test('a video draws a bigger share than photos, and huge sets split across emails', async () => {
+  const { allocateBudget, SHARE_WEIGHT, filesPerEmail } = await import('../shared/container.mjs');
+  const MB = 1024 ** 2;
+  const sizes = [80 * MB, 5 * MB, 5 * MB], weights = [SHARE_WEIGHT.video, SHARE_WEIGHT.image, SHARE_WEIGHT.image];
+  const [video, photo] = allocateBudget(sizes, 24 * MB, weights);
+  assert.ok(video > photo * 5, `video ${video} vs photo ${photo}`);
+  assert.ok(allocateBudget(sizes, 24 * MB, weights).reduce((sum, value) => sum + value, 0) <= 24 * MB);
+  // Weights never starve a file that already fits: it keeps its size and frees the surplus.
+  assert.deepEqual(allocateBudget([1 * MB, 60 * MB], 24 * MB, [1, SHARE_WEIGHT.video]), [1 * MB, 23 * MB]);
+  assert.equal(filesPerEmail(24 * MB), 111);
+  assert.equal(filesPerEmail(1024), 1);
+});

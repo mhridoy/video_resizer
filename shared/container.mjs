@@ -74,13 +74,37 @@ export function standardPath(container, categoryId, index, count, extension, ori
 }
 
 // Splits files into email-sized parts. ZIP stores entries uncompressed, so size = data + headers.
+// Shares one email's budget across its attachments: files smaller than an equal share keep
+// their size and hand the surplus to the rest, so invoices and tickets stay readable while
+// the heavy video absorbs the squeeze. (Max-min fair allocation.)
+export function allocateBudget(sizes, budget, weights = []) {
+  if (!Number.isFinite(budget) || budget <= 0) throw Error('Invalid email size limit.');
+  const targets = new Array(sizes.length).fill(0);
+  let remaining = budget;
+  let left = sizes.map((size, index) => ({ index, size, weight: weights[index] > 0 ? weights[index] : 1 }));
+  while (left.length) {
+    const unit = remaining / left.reduce((sum, file) => sum + file.weight, 0);
+    const fitting = left.filter(file => file.size <= unit * file.weight);
+    if (!fitting.length) { for (const file of left) targets[file.index] = Math.floor(unit * file.weight); break; }
+    for (const file of fitting) { targets[file.index] = file.size; remaining -= file.size; }
+    left = left.filter(file => file.size > unit * file.weight);
+  }
+  return targets;
+}
+
+// A video needs far more bytes than a photo to stay watchable, so it draws a larger share.
+export const SHARE_WEIGHT = { video: 6, image: 1, pdf: 1, doc: 1, other: 1 };
+// Below this a photo stops being worth sending, so a very large set is split across emails.
+export const MIN_SHARE = 220 * 1024;
+export const filesPerEmail = budget => Math.max(1, Math.floor(budget / MIN_SHARE));
+
 // First fit keeps the original order inside each part while using as few emails as possible.
-export function packParts(files, limit) {
+export function packParts(files, limit, overhead = file => 76 + 2 * new TextEncoder().encode(file.name).length) {
   const parts = [];
   for (const file of files) {
-    const cost = file.size + 76 + 2 * new TextEncoder().encode(file.name).length;
+    const cost = file.size + overhead(file);
     const part = parts.find(candidate => candidate.used + cost <= limit);
-    if (part) { part.files.push(file); part.used += cost; } else parts.push({ files: [file], used: 22 + cost });
+    if (part) { part.files.push(file); part.used += cost; } else parts.push({ files: [file], used: cost });
   }
   return parts.map(part => part.files);
 }
