@@ -1,5 +1,5 @@
 import { fileKind, limitBytes, safeRelativePath, extensionOf } from '../shared/fit-size.mjs';
-import { CATEGORIES, categoryById, parseContainer, detectContainer, categorize, standardPath, packParts, manifestCsv } from '../shared/container.mjs';
+import { CATEGORIES, categoryById, parseContainer, detectContainer, categorize, standardPath, packParts, manifestCsv, importableFromZip } from '../shared/container.mjs';
 import { shrinkFile, cancelShrink } from './shrink.js';
 import { icon } from './icons.js';
 
@@ -22,13 +22,35 @@ function defaultContainer() {
 const containerOf = item => item.container?.id || defaultContainer() || 'Unassigned';
 
 export function activateContainerTool() {
-  $('cp-hint').textContent = native ? 'Photos, videos, PDF and Office files · Native video engine' : 'Photos, videos (up to 1 GB each), PDF and Office files';
+  $('cp-hint').textContent = native ? 'Photos, videos, PDF, Office files, or a WhatsApp chat-export ZIP' : 'Photos, videos (up to 1 GB each), PDF, Office files, or a WhatsApp chat-export ZIP';
   syncContainerField(); syncPresets(); render();
 }
 
 // ---------- Import ----------
-function addFiles(list) {
+// A WhatsApp "Export chat" archive (or any ZIP of files) is unpacked instead of being queued.
+async function expandArchives(list) {
+  const out = [];
+  for (const file of list) {
+    if (!/\.zip$/i.test(file.name)) { out.push(file); continue; }
+    setStatus(`Opening ${file.name}…`);
+    try {
+      const { listZipEntries, zipEntryBlob } = await import('../shared/read-zip-blob.mjs');
+      const entries = (await listZipEntries(file)).filter(entry => !entry.directory && entry.size && importableFromZip(entry.name));
+      const stem = file.name.replace(/\.zip$/i, '');
+      for (const [index, entry] of entries.entries()) {
+        if (index % 20 === 0) { setStatus(`Opening ${file.name}: ${index + 1} of ${entries.length}…`); await new Promise(resolve => setTimeout(resolve, 0)); }
+        const child = new File([await zipEntryBlob(file, entry)], entry.name.split('/').pop());
+        child.relativeName = `${stem}/${entry.name}`;
+        out.push(child);
+      }
+    } catch (error) { setStatus(`Could not open ${file.name}: ${error.message}`); }
+  }
+  return out;
+}
+
+async function addFiles(input) {
   if (busy) return;
+  const list = input.some(file => /\.zip$/i.test(file.name)) ? await expandArchives(input) : input;
   const known = new Set(items.map(item => `${item.path}|${item.file.size}`));
   let added = 0, skipped = 0;
   for (const file of list) {
@@ -48,6 +70,12 @@ function addFiles(list) {
 function sortItems() {
   const order = Object.fromEntries(CATEGORIES.map((category, index) => [category.id, index]));
   items.sort((a, b) => containerOf(a).localeCompare(containerOf(b)) || order[a.category] - order[b.category] || a.path.localeCompare(b.path, undefined, { numeric: true }));
+}
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob), link = document.createElement('a');
+  link.href = url; link.download = filename; document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 // ---------- Table ----------
@@ -78,10 +106,15 @@ function rowFor(item) {
     const badge = el('span', 'status-badge'); const detail = el('span', 'result-detail');
     const bar = el('progress'); bar.max = 100;
     result.append(badge, detail, bar);
-    tr.append(file, container, category, size, result);
-    item.row = { tr, container, select, size, badge, detail, bar };
+    const send = el('td', 'cell-send');
+    const download = el('button', 'btn btn-secondary btn-sm');
+    download.innerHTML = `${icon('arrow-down')}<span>Save</span>`;
+    download.onclick = () => { saveBlob(item.output, item.sendName.split('/').pop()); item.saved = true; setStatus(`Saved ${item.sendName.split('/').pop()}.`); };
+    send.append(download);
+    tr.append(file, container, category, size, result, send);
+    item.row = { tr, container, select, size, badge, detail, bar, download };
   }
-  const { tr, container, select, size, badge, detail, bar } = item.row;
+  const { tr, container, select, size, badge, detail, bar, download } = item.row;
   const id = containerOf(item);
   container.replaceChildren(el('span', `mono${item.container ? '' : ' muted'}`, id));
   if (item.container && !item.container.valid) container.append(el('span', 'flag', 'Check digit'));
@@ -91,6 +124,8 @@ function rowFor(item) {
   badge.className = `status-badge ${item.status}`; badge.textContent = STATE[item.status];
   detail.textContent = resultText(item); detail.title = item.note || item.error || '';
   bar.hidden = item.status !== 'processing'; bar.value = item.progress;
+  download.hidden = !item.output || !item.sendName; download.disabled = busy;
+  if (item.sendName) download.title = `Save ${item.sendName.split('/').pop()}`;
   tr.className = item.status === 'error' ? 'row-error' : '';
   return tr;
 }
@@ -145,7 +180,7 @@ $('cp-start').onclick = async () => {
   const mute = $('cp-mute').checked;
   cancelled = false; const token = ++epoch;
   const queue = items.filter(item => !item.output || item.target !== target || item.mute !== mute);
-  queue.forEach(item => Object.assign(item, { status: 'queued', progress: 0, output: undefined, error: '', note: '' }));
+  queue.forEach(item => Object.assign(item, { status: 'queued', progress: 0, output: undefined, sendName: '', error: '', note: '' }));
   clearPacks(); setBusy(true);
   let last = 0;
   for (const [index, item] of queue.entries()) {
@@ -196,6 +231,7 @@ function buildPacks(target) {
       const inCategory = list.filter(item => item.category === category.id);
       inCategory.forEach((item, index) => {
         const path = standardPath(container, category.id, index + 1, inCategory.length, item.outputExtension, item.path.replace(/\.[^./]+$/, `.${item.outputExtension}`), rename);
+        item.sendName = path;
         files.push({ item, name: path, blob: item.output, size: item.output.size });
       });
     }
@@ -204,6 +240,7 @@ function buildPacks(target) {
     const base = `${container}${ref ? `_${ref}` : ''}`;
     return { container, base, files, manifest: manifestFile, parts: packParts([manifestFile, ...files], target) };
   });
+  items.forEach(rowFor);
   renderPacks(target);
 }
 
@@ -213,7 +250,7 @@ function renderPacks(target) {
   const reduced = items.filter(item => item.status === 'done');
   const before = reduced.reduce((sum, item) => sum + item.file.size, 0), after = reduced.reduce((sum, item) => sum + item.output.size, 0);
   $('cp-results-title').textContent = ready ? `${ready} ${ready === 1 ? 'file is' : 'files are'} ready to send` : 'No files are ready';
-  $('cp-results-sub').textContent = `Every file is under ${formatSize(target)}. Email parts are ZIP files that also stay under ${formatSize(target)} each.`;
+  $('cp-results-sub').textContent = `Every file is under ${formatSize(target)}, ready to attach one by one. Save them to a folder, or use Save on any row.`;
   const stats = [[ready, 'Files ready'], [reduced.length, 'Reduced'], [failed.length, 'Need attention'], [before ? `${Math.round((1 - after / before) * 100)}%` : '—', 'Size saved']];
   $('cp-stats').replaceChildren(...stats.map(([value, label]) => { const box = el('div', 'stat'); box.append(el('strong', '', String(value)), el('span', '', label)); return box; }));
   const cards = packs.map(pack => {
@@ -221,23 +258,30 @@ function renderPacks(target) {
     const head = el('div', 'pack-head');
     const title = el('div'); title.append(el('h3', 'mono', pack.container), el('p', '', `${pack.files.length} files · ${formatSize(pack.files.reduce((sum, file) => sum + file.size, 0))}`));
     const actions = el('div', 'pack-actions');
-    const zip = el('button', 'btn btn-primary'); zip.innerHTML = `${icon('arrow-down')}<span>Download ZIP</span>`; zip.onclick = () => downloadPack(pack, [pack.manifest, ...pack.files], `${pack.base}.zip`, false);
+    const each = el('button', 'btn btn-primary'); each.innerHTML = `${icon('arrow-down')}<span>Save ${pack.files.length} files</span>`;
+    each.onclick = () => saveFiles(pack.files, `${pack.container}: `);
+    const zip = el('button', 'btn btn-secondary'); zip.innerHTML = `${icon('file')}<span>ZIP</span>`;
+    zip.title = 'One ZIP of this container, for upload portals';
+    zip.onclick = () => downloadPack(pack, [pack.manifest, ...pack.files], `${pack.base}.zip`);
     const csv = el('button', 'btn btn-secondary'); csv.innerHTML = `${icon('file')}<span>Manifest</span>`; csv.onclick = () => saveBlob(pack.manifest.blob, `${pack.base}_manifest.csv`);
-    actions.append(zip, csv); head.append(title, actions);
+    actions.append(each, zip, csv); head.append(title, actions);
     const counts = el('div', 'pack-counts');
     for (const category of CATEGORIES) {
       const count = pack.files.filter(file => file.item.category === category.id).length;
       if (count) counts.append(el('span', 'chip', `${count} ${category.label}`));
     }
-    const parts = el('div', 'pack-parts');
-    parts.append(el('span', 'parts-label', `Email parts (${pack.parts.length})`));
-    pack.parts.forEach((part, index) => {
-      const button = el('button', 'btn btn-secondary btn-sm');
-      button.textContent = `Part ${index + 1} · ${formatSize(part.reduce((sum, file) => sum + file.size, 0))}`;
-      button.onclick = () => downloadPack(pack, part, `${pack.base}_Part${index + 1}of${pack.parts.length}.zip`, false);
-      parts.append(button);
-    });
-    card.append(head, counts, parts);
+    card.append(head, counts);
+    if (pack.parts.length > 1) {
+      const parts = el('div', 'pack-parts');
+      parts.append(el('span', 'parts-label', `Needs ${pack.parts.length} emails · ZIP per email`));
+      pack.parts.forEach((part, index) => {
+        const button = el('button', 'btn btn-secondary btn-sm');
+        button.textContent = `Part ${index + 1} · ${formatSize(part.reduce((sum, file) => sum + file.size, 0))}`;
+        button.onclick = () => downloadPack(pack, part, `${pack.base}_Part${index + 1}of${pack.parts.length}.zip`);
+        parts.append(button);
+      });
+      card.append(parts);
+    }
     return card;
   });
   if (failed.length) {
@@ -247,17 +291,11 @@ function renderPacks(target) {
     cards.push(box);
   }
   $('cp-packs').replaceChildren(...cards);
-  $('cp-save-folder').hidden = !ready || !window.showDirectoryPicker;
+  $('cp-save-folder').hidden = !ready || !(native?.pickSaveFolder || window.showDirectoryPicker);
   $('cp-download-all').hidden = !ready;
   $('cp-results').hidden = false;
   $('cp-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
   setStatus(cancelled ? 'Cancelled. Completed files are available below.' : failed.length ? `Finished. ${failed.length} ${failed.length === 1 ? 'file needs' : 'files need'} attention.` : 'Finished. All files are within the limit.');
-}
-
-function saveBlob(blob, filename) {
-  const url = URL.createObjectURL(blob), link = document.createElement('a');
-  link.href = url; link.download = filename; document.body.append(link); link.click(); link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 async function downloadPack(pack, files, filename) {
@@ -271,19 +309,45 @@ async function downloadPack(pack, files, filename) {
   finally { setBusy(false); }
 }
 
-$('cp-download-all').onclick = () => {
-  const files = packs.flatMap(pack => [pack.manifest, ...pack.files]);
-  if (files.reduce((sum, file) => sum + file.size, 0) > 1.5 * 1024 ** 3) { setStatus('Too large for one ZIP. Download each container separately or use Save to folder.'); return; }
-  const ref = reference();
-  downloadPack(null, files, `Container-Documents${ref ? `_${ref}` : ''}.zip`);
-};
+// Saves each file on its own, so they can be attached to an email directly.
+async function saveFiles(files, prefix = '') {
+  setBusy(true);
+  try {
+    for (const [index, file] of files.entries()) {
+      setStatus(`${prefix}saving ${index + 1} of ${files.length}: ${file.name.split('/').pop()}`);
+      saveBlob(file.blob, file.name.split('/').pop());
+      if (file.item) file.item.saved = true;
+      await new Promise(resolve => setTimeout(resolve, 350));
+    }
+    setStatus(`${files.length} ${files.length === 1 ? 'file' : 'files'} sent to your Downloads folder. Your browser may ask to allow multiple downloads.`);
+  } finally { setBusy(false); }
+}
+
+$('cp-download-all').onclick = () => saveFiles(packs.flatMap(pack => pack.files));
 
 $('cp-save-folder').onclick = async () => {
+  const files = packs.flatMap(pack => [pack.manifest, ...pack.files]);
+  if (native?.pickSaveFolder) {
+    let root;
+    try { root = await native.pickSaveFolder(); } catch (error) { setStatus(error.message); return; }
+    if (!root) return;
+    setBusy(true);
+    try {
+      for (const [index, file] of files.entries()) {
+        setStatus(`Saving ${index + 1} of ${files.length}: ${file.name}`);
+        await native.saveInto(file.name, new Uint8Array(await file.blob.arrayBuffer()));
+        if (file.item) file.item.saved = true;
+      }
+      setStatus(`Saved ${files.length} files in ${root}, one folder per container.`);
+      native.openSaveFolder?.().catch(() => {});
+    } catch (error) { setStatus(`Could not save: ${error.message}`); }
+    finally { setBusy(false); }
+    return;
+  }
   let root;
   try { root = await window.showDirectoryPicker({ mode: 'readwrite', id: 'container-pack' }); } catch { return; }
   setBusy(true);
   try {
-    const files = packs.flatMap(pack => [pack.manifest, ...pack.files]);
     for (const [index, file] of files.entries()) {
       setStatus(`Saving ${index + 1} of ${files.length}: ${file.name}`);
       const segments = file.name.split('/'), name = segments.pop();
@@ -301,7 +365,7 @@ $('cp-save-folder').onclick = async () => {
 // ---------- Inputs ----------
 $('cp-pick-folder').onclick = () => { if (!busy) $('cp-folder-input').click(); };
 $('cp-pick-files').onclick = () => { if (!busy) $('cp-files-input').click(); };
-for (const id of ['cp-folder-input', 'cp-files-input']) $(id).onchange = event => { addFiles([...event.target.files]); event.target.value = ''; };
+for (const id of ['cp-folder-input', 'cp-files-input']) $(id).onchange = event => { const picked = [...event.target.files]; event.target.value = ''; addFiles(picked).catch(error => setStatus(error.message)); };
 $('cp-clear').onclick = () => {
   if (busy || (pending() && !confirm('Clear all files? Downloads you have not saved will be lost.'))) return;
   items = []; clearPacks(); render(); setStatus('');
@@ -324,7 +388,7 @@ zone.addEventListener('drop', async event => {
     for (let batch; (batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject))).length;) for (const child of batch) files.push(...await walk(child, `${parent}${entry.name}/`));
     return files;
   }
-  try { addFiles(entries.length ? (await Promise.all(entries.map(entry => walk(entry)))).flat() : fallback); }
+  try { await addFiles(entries.length ? (await Promise.all(entries.map(entry => walk(entry)))).flat() : fallback); }
   catch { setStatus('Could not read that folder. Please use Choose folder.'); }
 });
 window.addEventListener('beforeunload', event => { if (busy || pending()) { event.preventDefault(); event.returnValue = ''; } });

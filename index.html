@@ -37,10 +37,10 @@
         <div class="workspace">
           <div class="card">
             <div class="card-head"><div><h2>Shipment files <span class="count" id="cp-count">0</span></h2><p>Import the load folder. Files are sorted automatically; you can change any category before processing.</p></div><button id="cp-clear" class="btn btn-ghost btn-sm" disabled>Clear</button></div>
-            <div id="cp-dropzone" class="dropzone"><div class="drop-icon" data-icon="folder"></div><div class="drop-copy"><h3>Drop the load folder here</h3><p id="cp-hint">Photos, videos, PDF and Office files</p></div><div class="pick-actions"><button id="cp-pick-folder" class="btn btn-primary"><span data-icon="folder"></span>Choose folder</button><button id="cp-pick-files" class="btn btn-secondary"><span data-icon="plus"></span>Add files</button></div><input id="cp-folder-input" type="file" webkitdirectory multiple hidden><input id="cp-files-input" type="file" multiple hidden></div>
+            <div id="cp-dropzone" class="dropzone"><div class="drop-icon" data-icon="folder"></div><div class="drop-copy"><h3>Drop the load folder here</h3><p id="cp-hint">Photos, videos, PDF and Office files</p></div><div class="pick-actions"><button id="cp-pick-folder" class="btn btn-primary"><span data-icon="folder"></span>Choose folder</button><button id="cp-pick-files" class="btn btn-secondary"><span data-icon="plus"></span>Add files or ZIP</button></div><input id="cp-folder-input" type="file" webkitdirectory multiple hidden><input id="cp-files-input" type="file" multiple hidden></div>
             <div id="cp-categories" class="chip-row" hidden></div>
-            <div id="cp-table-wrap" class="table-wrap" hidden><table class="data-table"><thead><tr><th>File</th><th>Container</th><th>Category</th><th class="num">Size</th><th>Result</th></tr></thead><tbody id="cp-rows"></tbody></table></div>
-            <div id="cp-empty" class="empty-state"><strong>No files imported</strong><span>Tip: name folders by container number (e.g. <code>MSCU1234567</code>) to group several containers in one run. Files named “invoice”, “weight”, “VGM” or “ticket” are sorted automatically.</span></div>
+            <div id="cp-table-wrap" class="table-wrap" hidden><table class="data-table"><thead><tr><th>File</th><th>Container</th><th>Category</th><th class="num">Size</th><th>Result</th><th>Send</th></tr></thead><tbody id="cp-rows"></tbody></table></div>
+            <div id="cp-empty" class="empty-state"><strong>No files imported</strong><span>Name folders by container number (e.g. <code>MSCU1234567</code>) to group several containers in one run. Files named “invoice”, “weight”, “VGM” or “ticket” are sorted automatically. On a Mac you can also drop a WhatsApp <strong>Export chat</strong> ZIP straight in — no need to download each photo.</span></div>
             <div class="card-foot"><span id="cp-total">No files imported</span><span>Originals are never modified</span></div>
           </div>
           <aside class="card settings" aria-label="Container settings">
@@ -54,7 +54,7 @@
           </aside>
         </div>
         <section id="cp-results" class="card results-card" hidden aria-labelledby="cp-results-title">
-          <div class="card-head"><div><h2 id="cp-results-title">Ready to send</h2><p id="cp-results-sub"></p></div><div class="head-actions"><button id="cp-save-folder" class="btn btn-secondary" hidden><span data-icon="folder"></span>Save to folder</button><button id="cp-download-all" class="btn btn-primary" hidden><span data-icon="arrow-down"></span>Download all</button></div></div>
+          <div class="card-head"><div><h2 id="cp-results-title">Ready to send</h2><p id="cp-results-sub"></p></div><div class="head-actions"><button id="cp-save-folder" class="btn btn-secondary" hidden><span data-icon="folder"></span>Save to folder</button><button id="cp-download-all" class="btn btn-primary" hidden><span data-icon="arrow-down"></span>Save all files</button></div></div>
           <div id="cp-stats" class="stats"></div>
           <div id="cp-packs" class="packs"></div>
         </section>

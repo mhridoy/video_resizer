@@ -93,3 +93,12 @@ export function manifestCsv(rows) {
 }
 
 export { extensionOf };
+
+// Entries to ignore when importing a ZIP: macOS resource forks, hidden files, and the
+// transcript WhatsApp puts beside the media in a chat export.
+export function importableFromZip(name) {
+  if (!name || name.endsWith('/')) return false;
+  const segments = String(name).split('/');
+  if (segments.some(part => part.startsWith('.') || part === '__MACOSX')) return false;
+  return !/^_chat\.txt$/i.test(segments[segments.length - 1]);
+}

@@ -10,5 +10,8 @@ contextBridge.exposeInMainWorld('desktop', {
   fitVideo: (file, targetBytes, mute) => ipcRenderer.invoke('fit-video', webUtils.getPathForFile(file), targetBytes, mute === true),
   cancelFit: () => ipcRenderer.invoke('fit-cancel'),
   onFitProgress: fn => { const listener = (_event, value) => fn(value); ipcRenderer.on('fit-progress', listener); return () => ipcRenderer.removeListener('fit-progress', listener); },
+  pickSaveFolder: () => ipcRenderer.invoke('pick-save-folder'),
+  saveInto: (name, data) => ipcRenderer.invoke('save-into-folder', name, data),
+  openSaveFolder: () => ipcRenderer.invoke('open-save-folder'),
   onEvent: fn => { const listener = (_event, data) => fn(data); ipcRenderer.on('batch-event', listener); return () => ipcRenderer.removeListener('batch-event', listener); },
 });

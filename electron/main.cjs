@@ -5,7 +5,7 @@ const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { BatchEngine, scanFolder } = require('./engine.cjs');
 const { FitVideo } = require('./fit-video.cjs');
-let win, engine, fitter, outputBase, lastOutput;
+let win, engine, fitter, outputBase, lastOutput, saveRoot;
 const selected = new Map();
 const page = pathToFileURL(path.join(__dirname, '../dist/index.html')).href;
 function handle(channel, fn) {
@@ -41,6 +41,24 @@ app.whenReady().then(async () => {
     return lastOutput;
   });
   handle('cancel-batch', () => engine.cancel());
+  handle('pick-save-folder', async () => {
+    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: 'Choose where to save the prepared files' });
+    if (result.canceled) return '';
+    saveRoot = result.filePaths[0];
+    return saveRoot;
+  });
+  // The renderer never supplies a directory: it can only write under the folder picked above.
+  handle('save-into-folder', async (relativeName, data) => {
+    if (!saveRoot) throw new Error('Choose a folder first.');
+    if (!(data instanceof Uint8Array)) throw new Error('Invalid file contents.');
+    const relative = String(relativeName).split(/[\\/]/).filter(part => part && part !== '.' && part !== '..').join(path.sep);
+    const target = path.join(saveRoot, relative);
+    if (!relative || !target.startsWith(saveRoot + path.sep)) throw new Error('Invalid file name.');
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, data);
+    return target;
+  });
+  handle('open-save-folder', async () => { if (saveRoot) { const error = await shell.openPath(saveRoot); if (error) throw new Error(error); } });
   fitter = new FitVideo(binary);
   handle('fit-video', async (file, targetBytes, mute) => {
     if (fitter.child) throw new Error('Wait for the current video.');
