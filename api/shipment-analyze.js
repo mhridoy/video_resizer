@@ -26,13 +26,19 @@ export default async function handler(req, res) {
       try { body = JSON.parse(body.toString()); } catch { return reply(400, { error: 'Invalid JSON.' }); }
     }
     if (!body || Buffer.byteLength(JSON.stringify(body)) > MAX_AI_BODY || !Array.isArray(body.images) || !body.images.length || body.images.length > MAX_AI_IMAGES) return reply(400, { error: 'Invalid image batch.' });
-    const ids = new Set(), content = [];
+    const ids = new Set(), content = []; let pageCount = 0;
     for (const image of body.images) {
-      if (!image || !/^\d{1,12}$/.test(image.id) || ids.has(image.id) || typeof image.name !== 'string' || image.name.length > 240 || typeof image.data !== 'string' || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(image.data) || image.data.length > 650_000) return reply(400, { error: 'Invalid preview image.' });
-      const bytes = Buffer.from(image.data.split(',')[1], 'base64');
-      if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return reply(400, { error: 'Preview must be JPEG.' });
+      if (!image || !/^\d{1,12}$/.test(image.id) || ids.has(image.id) || typeof image.name !== 'string' || image.name.length > 240) return reply(400, { error: 'Invalid image metadata.' });
+      const pages = image.pages || [{ data: image.data, hasQrCode: false }];
+      if (!Array.isArray(pages) || !pages.length || pages.length > 3 || (pageCount += pages.length) > MAX_AI_IMAGES) return reply(400, { error: 'Too many preview pages.' });
       ids.add(image.id);
-      content.push({ type: 'text', text: JSON.stringify({ id: image.id, filename: image.name }) }, { type: 'image', image: bytes, mediaType: 'image/jpeg' });
+      content.push({ type: 'text', text: JSON.stringify({ id: image.id, filename: image.name, pages: pages.length }) });
+      for (const [index, page] of pages.entries()) {
+        if (!page || typeof page.hasQrCode !== 'boolean' || typeof page.data !== 'string' || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(page.data) || page.data.length > 650_000) return reply(400, { error: 'Invalid preview image.' });
+        const bytes = Buffer.from(page.data.split(',')[1], 'base64');
+        if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return reply(400, { error: 'Preview must be JPEG.' });
+        content.push({type:'text',text:JSON.stringify({id:image.id,page:index+1,localQrDetected:page.hasQrCode})}, { type: 'image', image: bytes, mediaType: 'image/jpeg' });
+      }
     }
     // No tools, URL fetches, image storage, payload logging or raw transcript upload.
     const { output } = await generateText({

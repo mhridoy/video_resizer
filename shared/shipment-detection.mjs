@@ -1,7 +1,8 @@
+import { invoiceEvidence } from './invoice-documents.mjs';
 import { parseContainer, safeIdentifier } from './container.mjs';
 
 // Exported chat and OCR text are data only. Nothing in them is executed.
-export function detectShipmentText(input) {
+export function detectShipmentText(input, { hasQrCode = false } = {}) {
   const text = String(input || '').replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').toUpperCase();
   const containers = new Map();
   for (const match of text.matchAll(/\b([A-Z]{3}[UJZR])[\s._-]*(\d{3})[\s._-]*(\d{3})[\s._-]*(\d)\b/g)) {
@@ -21,6 +22,7 @@ export function detectShipmentText(input) {
   // Container doors also say GROSS / TARE / NET. Those words alone are not a ticket.
   const weight = /\b(?:WEIGH\s*BRIDGE|WEIGHING|WEIGHT\s*(?:TICKET|SLIP)|TICKET\s*(?:ID|NO)|[12]\s*(?:ST|ND)\s+WEIGHT)\b/.test(text)
     || (/\bNET\s+WEIGHT\b/.test(text) && /\b(?:DATE|CUSTOMER|OPERATOR)\b/.test(text));
+  const billing = invoiceEvidence(input, hasQrCode);
   const invoice = !weight && /\b(?:INVOICE|PROFORMA)\b/.test(text);
   const shippingRules = [
     ['CONTAINER_PLACEMENT_ORDER', /CONTAINER\s+PLACEMENT\s+ORDER/],
@@ -39,10 +41,10 @@ export function detectShipmentText(input) {
   }
   // Bolt seals often carry only a serial, without the word "seal". Require a long
   // letter prefix and serial, and never interpret container IDs or document IDs as seals.
-  if (!weight && !invoice && !documentType && text.length < 500) for (const match of text.matchAll(/\b([A-Z]{3,6}\d{6,10})\b/g)) {
+  if (!weight && !invoice && !billing.category && !documentType && text.length < 500) for (const match of text.matchAll(/\b([A-Z]{3,6}\d{6,10})\b/g)) {
     if (!containers.has(match[1]) && !parseContainer(match[1])) seals.set(match[1], { id: match[1], explicit: false });
   }
-  return { containers: [...containers.values()], seals: [...seals.values()], documentType, category: weight ? 'weight' : documentType ? 'shipping' : invoice ? 'invoices' : seals.size ? 'seals' : null };
+  return { ...billing, containers: [...containers.values()], seals: [...seals.values()], documentType, category: weight ? 'weight' : documentType ? 'shipping' : billing.category || (invoice ? 'invoices' : seals.size ? 'seals' : null) };
 }
 
 // Only share a unique ID within this import's source (one ZIP or selected folder).

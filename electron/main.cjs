@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
   });
   handle('pick-shipment-folder', async () => {
     if (sourceFolder.running) throw new Error('Wait for folder replacement to finish.');
-    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose shipment folder — prepared files replace originals here' });
+    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose shipment source folder' });
     if (result.canceled) return null;
     return sourceFolder.open(result.filePaths[0]);
   });

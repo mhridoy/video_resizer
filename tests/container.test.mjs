@@ -25,14 +25,14 @@ test('sorts files into container document categories', () => {
   assert.equal(categorize('MSCU/VGM declaration.pdf'), 'weight');
   assert.equal(categorize('MSCU/kanta slip.jpg'), 'weight');
   assert.equal(categorize('MSCU/Bill of Lading.pdf'), 'documents');
-  assert.equal(categorize('MSCU/Packing list.xlsx'), 'documents');
+  assert.equal(categorize('MSCU/Packing list.xlsx'), 'packing');
   assert.equal(categorize('MSCU/notes.pdf'), 'documents');
   assert.equal(categorize('MSCU/seal photo.jpg'), 'seals');
   assert.equal(categorize('Invoices/scan.jpg'), 'invoices');
 });
 
 test('builds standard names and email-sized parts', () => {
-  assert.equal(standardPath('CSQU3054383', 'invoices', 3, 12, 'pdf', 'x/a.pdf'), 'CSQU3054383_INVOICE_03.pdf');
+  assert.equal(standardPath('CSQU3054383', 'invoices', 3, 12, 'pdf', 'x/a.pdf'), 'Inv Number unknown 03.pdf');
   assert.equal(standardPath('', 'photos', 1, 1, 'jpg', 'x/IMG 1.jpg', false), 'IMG 1.jpg');
   const files = [10, 10, 10, 3].map((mb, i) => ({ name: `f${i}`, size: mb * 1024 ** 2 }));
   const parts = packParts(files, 24 * 1024 ** 2);

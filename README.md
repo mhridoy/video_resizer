@@ -2,7 +2,7 @@
 
 A searchable dashboard with **13 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows, macOS and the web**. Filter by file type, choose a tool, and process files locally.
 
-Batch resize and compress videos, or prepare shipment evidence. The video tools preserve originals; Container Load Pack replaces files in the selected writable shipment folder after successful preparation.
+Batch resize and compress videos, or prepare shipment evidence. The video tools preserve originals; Container Load Pack saves into a chosen output folder by default, with an explicit option to replace imported originals.
 
 Web app: https://video-resizer-eta.vercel.app/
 
@@ -22,12 +22,22 @@ The web app compresses files locally in your browser without uploading videos. O
 Prepare a container's load documentation so one email carries all of it. The limit is the **total of all attachments in one email** (24 MB by default), not a per-file size:
 
 1. Open **Container Load Pack**, enter your app's AI access code, and import a WhatsApp **Export chat ZIP**, folder, or files. Preparation starts automatically (disable **Prepare automatically** to review first). Chat transcripts are read locally as data for shipment numbers, then omitted from the output.
-2. **Pro AI** uses a server-side vision model through Vercel AI Gateway. Reduced photo previews and PDF first-page previews are sent for classification, container/seal reading, visual loading progress and quality scoring. Original videos, raw chat transcripts and compression stay local. API keys never reach the browser. Files and embedded text are untrusted data, never instructions to the model.
+2. **Pro AI** uses a server-side vision model through Vercel AI Gateway. Reduced photo previews and up to three PDF page previews are sent for classification, container/seal reading, visual loading progress and quality scoring. Original videos, raw chat transcripts and compression stay local. API keys never reach the browser. Files and embedded text are untrusted data, never instructions to the model.
 3. **4 photos per loading stage** keeps up to **four distinct photos each at 0%, 25%, 50%, 75%, and 100%** per shipment, preferring quality and excluding similar shots. Percentages are visual approximations, never inferred from file order. Missing stages are not fabricated; if a stage has fewer than four distinct photos, all available ones remain. Uncertain photos stay for review, so an ambiguous import can retain more than twenty loading images. Every video, seal, closed-door photo, weight ticket and document is kept.
 4. Container/seal numbers, document types, stages and inclusion remain editable. **Unreadable seal numbers never cause seal photos to be dropped.** A unique verified container can be shared within the same source import; conflicting numbers require review. Local mode uses on-device OCR (first three PDF pages), and stages need manual selection. It does not pretend OCR measured loading progress.
 5. Selection, flat naming and compression run automatically. **The entire batch shares 24,000,000 bytes by default**, including every container and ZIP overhead. Small files keep their bytes; videos receive a larger compression budget. If any retained file fails, processing is cancelled, or the total cannot fit, the package is marked incomplete and combined export stays unavailable. The app never silently drops a video or splits the batch into extra emails.
-6. **Choose folder** opens a shipment folder with write access. After the complete batch fits the limit, prepared files automatically replace imported originals **inside that same folder**. Excluded loading photos and imported chat transcripts are removed; outputs are flattened to the root and empty source subfolders are removed. No CSV, extra output folder or ZIP is generated. Hidden files, skipped system files and new unrelated files are left alone. A ZIP added through **Add files or ZIP** remains a download workflow; the source archive is not overwritten. A ZIP inside a selected writable folder is replaced by its prepared contents along with the other imported files.
-7. Folder replacement is available in the desktop app and browsers exposing `showDirectoryPicker` with write access. The app's **Choose folder** button requests that access; a read-only upload cannot authorize filesystem writes. Supported directory drops also acquire a writable folder handle. Import one replacement folder at a time. Download actions remain available for ZIP uploads or optional extra copies, and never generate a CSV.
+6. **Choose output folder** selects the destination before import. Prepared files save there automatically when the batch fits the limit. You can also choose the destination afterward with **Save to chosen folder**. Files are flat, without CSVs or category subfolders, and originals are preserved by default. Output collisions are reported rather than overwriting existing files.
+7. **Where to save → Replace files in the imported folder** explicitly selects in-place replacement. Only that option removes imported originals and excluded photos after successful preparation. It requires a writable source folder. Folder saving is available in the desktop app and browsers with File System Access support; other browsers can download the prepared ZIP.
+
+### Invoice and packing-list names
+
+Invoice references are extracted separately from container IDs, VAT registration numbers, dates and booking references. Local OCR reads image text; native PDF text and raster OCR cover the first three PDF pages. QR codes are decoded locally with jsQR; their contents are not logged, uploaded or opened. Pro AI also inspects document pages and receives only a QR-presence flag.
+
+- Invoice: `Inv 000123.pdf`
+- Invoice with a QR code: `VAT 000123.pdf`
+- Packing list referencing that invoice: `Packing List Inv 000123.pdf`
+
+Extensions follow the actual output format. Packing lists, weight tickets and shipping documents do not become VAT invoices merely because they have a QR code. Invoice numbers can be corrected in the table; missing/conflicting numbers get an explicit `Number unknown` name, never a guessed reference. Multiple documents with the same number receive collision suffixes. PDF analysis is limited to three pages; unreadable or later-page references require review.
 
 Replacement stages every output and recovery copies of imported originals in a temporary `.binary-beat-recovery-*` folder. Only after all preparation and source-change checks pass does it remove originals and install outputs. It restores removed originals on a write failure; success removes temporary recovery data. A crash, lost permission or disk failure can leave recovery data behind: stop editing that folder and restore files from its `originals/` subtree to their matching paths before reimporting. `recovery.json` records source/output names. Do not delete recovery data until restoration is complete. This is a recoverable multi-file operation, not an atomic filesystem transaction. Avoid editing the folder concurrently. Replacing in place removes the extra download/save step; it does not shorten AI analysis or video encoding.
 
@@ -65,7 +75,7 @@ Mail servers measure the encoded message and base64 inflates attachments by abou
 | PDF invoices and tickets | Lossless structural compression first; if still too large, pages are rendered at 110 → 60 DPI (text no longer selectable). |
 | Word, Excel, PowerPoint, OpenDocument | Embedded pictures are reduced; text and layout are untouched. |
 
-Files already within the limit are kept byte-for-byte. The container folder workflow replaces originals after successful preparation; download workflows preserve them. Compression is local; enabled Pro AI sends shipment previews for analysis.
+Files already within the limit are kept byte-for-byte. The container folder workflow replaces originals only when Replace files in the imported folder is explicitly selected; the default output-folder workflow preserves them. Compression is local; enabled Pro AI sends shipment previews for analysis.
 
 ## macOS downloads
 

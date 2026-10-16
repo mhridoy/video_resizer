@@ -58,6 +58,14 @@ jobs:
       - run: npm run build && npx electron-builder --mac --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify Mac app signatures and disk images
+        run: |
+          for bundle in release/*/"Binary Beat.app"; do
+            codesign --verify --deep --strict "$bundle"
+          done
+          for image in release/*.dmg; do
+            hdiutil verify "$image"
+          done
       - name: Check bundled FFmpeg architecture
         run: |
           file "release/"*/"Binary Beat.app/Contents/Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg"
@@ -111,7 +119,7 @@ jobs:
               tag_name: tag,
               target_commitish: context.sha,
               name: `Binary Beat ${tag}`,
-              body: "## Download Binary Beat\n\n### Windows\n\n[**Download Windows installer (.exe)**](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe) — recommended for Windows 10/11, 64-bit.\n\n[Portable EXE — no installation](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Portable.exe)\n\n### macOS 11 or later\n\n[**Mac with Apple silicon (M1–M4) .dmg**](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-arm64.dmg) · [Mac with Intel .dmg](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-x64.dmg)\n\nOpen the DMG and drag Binary Beat to Applications. The first time, right-click the app and choose **Open** (or System Settings → Privacy & Security → **Open Anyway**), because the app is not notarized by Apple.\n\n### Get started\n1. Download and install the Setup EXE.\n2. Choose your video folder, including subfolders.\n3. Choose a tool, or use **Container Load Pack** to prepare load photos, videos, invoices and weight tickets under 24 MB.\n\nFile compression runs locally; FFmpeg is included. Container Load Pack replaces originals in the writable folder selected with Choose folder after successful preparation. ZIP uploads remain a download workflow. Pro AI requires a configured service and sends shipment previews for analysis; local mode is available.\n\n**Unsigned build:** Windows may show an unknown-publisher warning. Native conversion tests and packaging passed in GitHub Actions; interactive installer and GUI testing are still needed.\n\n[Use the web app](https://video-resizer-eta.vercel.app/)",
+              body: "## Download Binary Beat\n\n### Windows\n\n[**Download Windows installer (.exe)**](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe) — recommended for Windows 10/11, 64-bit.\n\n[Portable EXE — no installation](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Portable.exe)\n\n### macOS 11 or later\n\n[**Mac with Apple silicon (M1–M4) .dmg**](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-arm64.dmg) · [Mac with Intel .dmg](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-x64.dmg)\n\nOpen the DMG and drag Binary Beat to Applications. The first time, right-click the app and choose **Open** (or System Settings → Privacy & Security → **Open Anyway**), because the app is not notarized by Apple.\n\n### Get started\n1. Download and install the Setup EXE.\n2. Choose your video folder, including subfolders.\n3. Choose a tool, or use **Container Load Pack** to prepare load photos, videos, invoices and weight tickets under 24 MB.\n\nFile compression runs locally; FFmpeg is included. Container Load Pack saves into your chosen output folder and keeps originals by default. Replacing the imported folder is a separate explicit option. ZIP uploads remain a download workflow. Pro AI requires a configured service and sends shipment previews for analysis; local mode is available.\n\n**Unsigned build:** Windows may show an unknown-publisher warning. Native conversion tests and packaging passed in GitHub Actions; interactive installer and GUI testing are still needed.\n\n[Use the web app](https://video-resizer-eta.vercel.app/)",
               draft: true,
               prerelease: false
             });
@@ -122,7 +130,8 @@ jobs:
                 else if (/\.(exe|blockmap|yml|dmg|zip)$/.test(entry.name)) {
                   await github.rest.repos.uploadReleaseAsset({
                     ...context.repo, release_id: release.id, name: entry.name,
-                    data: fs.readFileSync(file)
+                    data: fs.readFileSync(file),
+                    headers: { 'content-type': entry.name.endsWith('.zip') ? 'application/zip' : entry.name.endsWith('.yml') ? 'text/yaml' : 'application/octet-stream' }
                   });
                 }
               }

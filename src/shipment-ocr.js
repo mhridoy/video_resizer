@@ -1,3 +1,4 @@
+import { hasShipmentQr } from './shipment-qr.js';
 import { createWorker } from 'tesseract.js';
 import { detectShipmentText } from '../shared/shipment-detection.mjs';
 import { sealRegions } from '../shared/photo-regions.mjs';
@@ -10,11 +11,13 @@ export async function createShipmentScanner() {
   await worker.setParameters({ tessedit_pageseg_mode: '11' });
   return {
     close: () => worker.terminate(),
-    async scan(file, check = () => {}) {
+    async scan(file, check = () => {}, knownQr) {
       check();
       const { data } = await worker.recognize(file);
       check();
-      const found = detectShipmentText(data.text);
+      const hasQrCode = knownQr ?? await hasShipmentQr(file);
+      check();
+      const found = detectShipmentText(data.text, { hasQrCode });
       if (found.category) return found;
       // Keep a likely seal photo even when the engraved serial cannot be read.
       // Do not spend time retrying the serial: the photo is the required evidence.

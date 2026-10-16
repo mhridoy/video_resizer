@@ -1,3 +1,4 @@
+import { safeInvoiceNumber } from '../shared/invoice-documents.mjs';
 import { fileKind, safeRelativePath, extensionOf } from '../shared/fit-size.mjs';
 import { CATEGORIES, parseContainer, detectContainer, categorize, standardPath, importableFromZip, allocateBudget, SHARE_WEIGHT, isChatTranscript, safeIdentifier, uniqueOutputName, SHIPPING_DOCUMENTS } from '../shared/container.mjs';
 import { shrinkFile, cancelShrink } from './shrink.js';
@@ -11,6 +12,8 @@ const $ = id => document.getElementById(id);
 const native = window.desktop;
 const KIND_ICON = { image: 'image', video: 'video', pdf: 'file', doc: 'file', other: 'file' };
 const STATE = { replaced: 'Replaced', queued: 'Pending', processing: 'Processing', done: 'Reduced', kept: 'Kept as is', error: 'Failed', cancelled: 'Cancelled' };
+let outputFolder;
+const replaceMode = () => $('cp-output-mode').value === 'replace';
 let sourceFolder, folderReplaced = false, replacingFolder = false;
 let aiController, analysisProblem = '', packageReady = false;
 let items = [], busy = false, cancelled = false, epoch = 0, packs = [], nextId = 1;
@@ -55,7 +58,7 @@ async function refreshAIStatus() {
 $('cp-local-mode').onclick = () => {
   if (busy) return;
   $('cp-ai').checked = false; $('cp-ai').dispatchEvent(new Event('change'));
-  setStatus('Local mode selected. Click Prepare files to read numbers locally, compress and replace the chosen folder. Loading stages need manual selection; uncertain photos are kept.');
+  setStatus('Local mode selected. Click Prepare files to read numbers and invoice references locally, then save using the selected output mode. Loading stages need manual selection; uncertain photos are kept.');
 };
 
 let importWarnings = [];
@@ -101,7 +104,7 @@ async function addFiles(input) {
       if (kind === 'skip' || !file.size || isChatTranscript(path) || (!sourceFolder && known.has(`${path}|${file.size}`))) continue;
       known.add(`${path}|${file.size}`);
       const evidence = detectShipmentText(path);
-      const item = { id: nextId++, file, path, kind, category: kind === 'video' ? 'videos' : evidence.category || categorize(path), documentType: evidence.documentType, container: detectContainer(path), evidence, seal: '', status: 'queued', progress: 0, included: true, stage: '' };
+      const item = { id: nextId++, file, path, kind, category: kind === 'video' ? 'videos' : evidence.category || categorize(path), documentType: evidence.documentType, invoiceNumber: evidence.invoiceNumber, hasQrCode: false, container: detectContainer(path), evidence, seal: '', status: 'queued', progress: 0, included: true, stage: '' };
       items.push(item); addedItems.push(item);
     }
     clearPacks(); render();
@@ -143,6 +146,8 @@ async function readLocalItems(list) {
         };
         if (found.category) item.category = found.category;
         if (found.documentType) item.documentType = found.documentType;
+        item.invoiceNumber = found.invoiceNumber || item.invoiceNumber || ''; item.hasQrCode = found.hasQrCode === true;
+        if (found.invoiceConflict) item.review = 'Multiple invoice numbers: verify the reference.';
         if (found.possibleSeal) item.review = 'Seal photo kept. Number is optional.';
         item.localRead = true;
       } catch (error) { if (!cancelled) item.review = 'Could not read this file. Verify its category and numbers manually.'; }
@@ -163,6 +168,7 @@ async function readAI() {
         // Uncertain evidence must not cause automatic deletion or stage assignment.
         if (found.confidence >= .7 || found.category === 'seals') item.category = found.category;
         item.documentType = found.documentType;
+        item.invoiceNumber = found.invoiceNumber || ''; item.hasQrCode = found.hasQrCode;
         item.evidence = {
           containers: [...new Map([...item.evidence.containers, ...(found.container ? [found.container] : [])].map(value => [value.id, value])).values()],
           seals: [...new Map([...item.evidence.seals, ...(found.seal ? [{ id: found.seal, explicit: true }] : [])].map(value => [value.id, value])).values()],
@@ -254,6 +260,9 @@ function rowFor(item) {
     const documentSelect = el('select', 'table-select'); documentSelect.setAttribute('aria-label', `Document type for ${item.path}`);
     for (const type of SHIPPING_DOCUMENTS) documentSelect.append(new Option(type.label, type.id));
     documentSelect.onchange = () => { item.documentType = documentSelect.value; clearPacks(); render(); };
+    const invoiceInput = el('input', 'table-id'); invoiceInput.placeholder = 'Invoice number';
+    invoiceInput.setAttribute('aria-label', `Invoice number for ${item.path}`);
+    invoiceInput.onchange = () => { item.invoiceNumber = safeInvoiceNumber(invoiceInput.value); clearPacks(); render(); };
     const stageSelect = el('select', 'table-select'); stageSelect.setAttribute('aria-label', `Loading stage for ${item.path}`);
     stageSelect.append(new Option('Loading stage: review', ''));
     for (const stage of LOADING_STAGES) stageSelect.append(new Option(`${stage}% loaded`, String(stage)));
@@ -266,7 +275,7 @@ function rowFor(item) {
     included.onchange = () => { item.manualIncluded = included.checked; item.included = included.checked; clearPacks(); render(); };
     includeLabel.append(included, document.createTextNode(' Keep photo'));
     const selectionNote = el('small', 'detection-note');
-    category.append(select, documentSelect, stageSelect, includeLabel, selectionNote);
+    category.append(select, invoiceInput, documentSelect, stageSelect, includeLabel, selectionNote);
     const size = el('td', 'num');
     const result = el('td', 'cell-result');
     const badge = el('span', 'status-badge'); const detail = el('span', 'result-detail');
@@ -278,15 +287,16 @@ function rowFor(item) {
     download.onclick = () => { saveBlob(item.output, item.sendName.split('/').pop()); item.saved = true; setStatus(`Saved ${item.sendName.split('/').pop()}.`); };
     send.append(download);
     tr.append(file, container, category, size, result, send);
-    item.row = { tr, container, containerInput, sealInput, detectionNote, folder, documentSelect, stageSelect, included, includeLabel, selectionNote, select, size, badge, detail, bar, download };
+    item.row = { tr, container, containerInput, sealInput, detectionNote, folder, invoiceInput, documentSelect, stageSelect, included, includeLabel, selectionNote, select, size, badge, detail, bar, download };
   }
-  const { tr, container, containerInput, sealInput, detectionNote, folder, documentSelect, stageSelect, included, includeLabel, selectionNote, select, size, badge, detail, bar, download } = item.row;
+  const { tr, container, containerInput, sealInput, detectionNote, folder, invoiceInput, documentSelect, stageSelect, included, includeLabel, selectionNote, select, size, badge, detail, bar, download } = item.row;
   const id = containerOf(item);
   containerInput.value = id === 'Unassigned' ? '' : id; containerInput.disabled = busy || folderReplaced;
   sealInput.value = sealOf(item); sealInput.disabled = busy || folderReplaced;
   detectionNote.textContent = item.review || (!item.container && !defaultContainer() ? 'Container not detected' : !sealOf(item) ? 'Seal number optional' : 'Verify detected numbers');
   folder.textContent = item.sendName || item.path;
   folder.title = item.sendName || item.path;
+  invoiceInput.hidden = !['invoices','vat','packing'].includes(item.category); invoiceInput.value = item.invoiceNumber || ''; invoiceInput.disabled = busy || folderReplaced;
   documentSelect.hidden = item.category !== 'shipping'; documentSelect.disabled = busy || folderReplaced; documentSelect.value = item.documentType || 'SHIPPING_DOC';
   stageSelect.hidden = item.category !== 'photos'; stageSelect.disabled = busy || folderReplaced; stageSelect.value = String(item.stage ?? '');
   includeLabel.hidden = item.category !== 'photos'; included.checked = item.included !== false; included.disabled = busy || folderReplaced;
@@ -318,13 +328,13 @@ function render() {
   $('cp-start').disabled = busy || folderReplaced || !items.some(item => item.included !== false);
   $('cp-clear').disabled = busy || (!items.length && !sourceFolder);
   $('cp-pick-files').disabled = busy || Boolean(sourceFolder);
-  $('cp-folder-mode').textContent = folderReplaced ? 'Original folder replaced successfully' : sourceFolder ? `Will replace files in ${sourceFolder.name} after successful preparation` : 'Choose folder: replace originals in place. ZIP uploads: download prepared files.';
+  $('cp-folder-mode').textContent = folderReplaced ? 'Original folder replaced successfully' : replaceMode() && sourceFolder ? `Will replace files in ${sourceFolder.name} after successful preparation` : outputFolder ? `Save to ${outputFolder.name} · originals kept` : 'Choose an output folder · originals kept';
 }
 
 function setBusy(value) {
   busy = value;
   $('container-panel').setAttribute('aria-busy', String(value));
-  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-standard', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-local-mode']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
+  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-standard', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
   document.querySelectorAll('[data-cp-limit], #cp-results button').forEach(button => { button.disabled = value; });
   $('cp-start').hidden = value; $('cp-cancel').hidden = !value; $('cp-progress-wrap').hidden = !value;
   items.forEach(rowFor); render();
@@ -402,7 +412,9 @@ async function prepareFiles(automatic = false) {
   }
   $('cp-progress').value = 100;
   setBusy(false); buildPacks(budget);
-  if (packageReady && sourceFolder) await replaceOriginalFolder();
+  if (packageReady && replaceMode() && sourceFolder) await replaceOriginalFolder();
+  else if (packageReady && !replaceMode() && outputFolder) await savePreparedToFolder();
+  else if (packageReady) setStatus(replaceMode() ? 'This import has no writable source folder. Choose Save to chosen folder to save the results.' : 'Ready. Click Save to chosen folder to select where these files go.');
 }
 
 $('cp-cancel').onclick = async () => {
@@ -428,7 +440,7 @@ function buildPacks(budget) {
     for (const category of CATEGORIES) {
       const inCategory = list.filter(item => item.category === category.id);
       inCategory.forEach((item, index) => {
-        const path = uniqueOutputName(standardPath(container, category.id, index + 1, inCategory.length, item.outputExtension, item.path.replace(/\.[^./]+$/, `.${item.outputExtension}`), rename, sealOf(item), item.category === 'photos' ? item.stage : '', item.documentType), usedNames);
+        const path = uniqueOutputName(standardPath(container, category.id, index + 1, inCategory.length, item.outputExtension, item.path.replace(/\.[^./]+$/, `.${item.outputExtension}`), rename, sealOf(item), item.category === 'photos' ? item.stage : '', item.documentType, item.invoiceNumber, item.hasQrCode), usedNames);
         item.sendName = path;
         files.push({ item, name: path, blob: item.output, size: item.output.size });
       });
@@ -481,8 +493,8 @@ function renderPacks(budget) {
     cards.push(box);
   }
   $('cp-packs').replaceChildren(...cards);
-  $('cp-replace-folder').hidden = !packageReady || !sourceFolder || folderReplaced;
-  $('cp-save-folder').hidden = Boolean(sourceFolder) || folderReplaced || !packageReady || !(native?.pickSaveFolder || window.showDirectoryPicker);
+  $('cp-replace-folder').hidden = !replaceMode() || !packageReady || !sourceFolder || folderReplaced;
+  $('cp-save-folder').hidden = folderReplaced || !packageReady || !(native?.pickSaveFolder || window.showDirectoryPicker);
   $('cp-download-all').hidden = !packageReady; $('cp-zip-all').hidden = !packageReady;
   $('cp-results').hidden = false;
   $('cp-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -520,12 +532,13 @@ $('cp-zip-all').onclick = () => packageReady && downloadPack(null, packs.flatMap
 
 $('cp-download-all').onclick = () => packageReady && saveFiles(packs.flatMap(pack => pack.files));
 
-$('cp-save-folder').onclick = async () => {
+$('cp-save-folder').onclick = () => savePreparedToFolder();
+async function savePreparedToFolder() {
   if (!packageReady) return;
   const files = packs.flatMap(pack => pack.files);
   if (native?.pickSaveFolder) {
-    let root;
-    try { root = await native.pickSaveFolder(); } catch (error) { setStatus(error.message); return; }
+    let root = outputFolder?.nativePath;
+    try { if (!root) root = await native.pickSaveFolder(); } catch (error) { setStatus(error.message); return; }
     if (!root) return;
     setBusy(true);
     try {
@@ -541,7 +554,7 @@ $('cp-save-folder').onclick = async () => {
     return;
   }
   let root;
-  try { root = await window.showDirectoryPicker({ mode: 'readwrite', id: 'container-pack' }); } catch { return; }
+  try { root = outputFolder?.handle || await window.showDirectoryPicker({ mode: 'readwrite', id: 'container-pack' }); } catch { return; }
   setBusy(true);
   try {
     const existing = new Set();
@@ -560,10 +573,10 @@ $('cp-save-folder').onclick = async () => {
     setStatus(`Saved ${files.length} files to “${root.name}”, all together in the root folder.`);
   } catch (error) { setStatus(`Could not save: ${error.message}`); }
   finally { setBusy(false); }
-};
+}
 
 async function replaceOriginalFolder() {
-  if (!packageReady || !sourceFolder || folderReplaced || busy) return;
+  if (!replaceMode() || !packageReady || !sourceFolder || folderReplaced || busy) return;
   setBusy(true); replacingFolder = true; $('cp-cancel').hidden = true;
   try {
     const prepared = packs.flatMap(pack => pack.files);
@@ -604,8 +617,12 @@ async function importFolder(root) {
   try {
     // The picker runs directly from the user's gesture, before loading modules.
     if (!root && native?.pickShipmentFolder) selected = await native.pickShipmentFolder();
-    else if (!root && window.showDirectoryPicker) root = await window.showDirectoryPicker({ mode: 'readwrite', id: 'shipment-source' });
-    else if (!root) { setStatus('This browser cannot replace local files. Use the desktop app or a browser with folder write access.'); return; }
+    else if (!root && window.showDirectoryPicker) root = await window.showDirectoryPicker({ mode: replaceMode() ? 'readwrite' : 'read', id: 'shipment-source' });
+    else if (!root) {
+      if (replaceMode()) setStatus('This browser cannot replace local files. Use the desktop app or choose the output-folder mode.');
+      else $('cp-folder-input').click();
+      return;
+    }
     if (!selected && !root) return;
     check();
     let files;
@@ -618,7 +635,7 @@ async function importFolder(root) {
         file.relativeName = `${selected.name}/${entry.path}`; file.shipmentSource = selected; files.push(file);
       }
       selected.files = files;
-    } else selected = await (await import('./source-folder.js')).openSourceFolder(root, check);
+    } else selected = await (await import('./source-folder.js')).openSourceFolder(root, check, replaceMode());
     files = selected.files;
     const transcripts = await Promise.all(files.filter(file => isChatTranscript(file.name) && file.size <= 5 * 1024 ** 2).map(file => file.text()));
     check();
@@ -628,10 +645,38 @@ async function importFolder(root) {
   await addFiles(selected.files);
 }
 
+$('cp-pick-output').onclick = async () => {
+  if (busy) return;
+  try {
+    if (native?.pickSaveFolder) {
+      const path = await native.pickSaveFolder();
+      if (!path) return;
+      outputFolder = { name: path, nativePath: path };
+    } else if (window.showDirectoryPicker) {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'container-output' });
+      outputFolder = { name: handle.name, handle };
+    } else { setStatus('This browser cannot write to a chosen folder. Use the desktop app or download a ZIP.'); return; }
+    $('cp-output-state').textContent = `Destination: ${outputFolder.name}`;
+    render();
+    if (packageReady && !replaceMode()) await savePreparedToFolder();
+  } catch (error) { if (error.name !== 'AbortError') setStatus(error.message); }
+};
+$('cp-output-mode').onchange = async () => {
+  if (replaceMode() && sourceFolder?.root) {
+    try {
+      if (await sourceFolder.root.requestPermission({mode:'readwrite'}) !== 'granted') throw Error('Write access was not granted; originals will be kept.');
+    } catch (error) { $('cp-output-mode').value = 'folder'; setStatus(error.message); }
+  }
+  $('cp-pick-output').hidden = replaceMode();
+  $('cp-output-state').textContent = replaceMode() ? 'Replaces imported originals only after all files are prepared successfully.' : outputFolder ? `Destination: ${outputFolder.name}` : 'Choose your output folder. Originals are kept.';
+  if (packs.length) renderPacks(emailBudget());
+  render();
+};
+
 // ---------- Inputs ----------
 $('cp-pick-folder').onclick = () => importFolder().catch(error => { if (error.name !== 'AbortError') setStatus(error.message); });
 $('cp-pick-files').onclick = () => { if (!busy && !sourceFolder) $('cp-files-input').click(); };
-for (const id of ['cp-files-input']) $(id).onchange = event => { const picked = [...event.target.files]; event.target.value = ''; addFiles(picked).catch(error => setStatus(error.message)); };
+for (const id of ['cp-files-input', 'cp-folder-input']) $(id).onchange = event => { const picked = [...event.target.files]; event.target.value = ''; addFiles(picked).catch(error => setStatus(error.message)); };
 $('cp-clear').onclick = () => {
   if (busy || (pending() && !confirm('Clear all files? Downloads you have not saved will be lost.'))) return;
   items.forEach(item => { if (item.previewUrl) URL.revokeObjectURL(item.previewUrl); }); items = []; sourceFolder = undefined; folderReplaced = false; analysisProblem = ''; importWarnings = []; clearPacks(); setBusy(false); setStatus('');

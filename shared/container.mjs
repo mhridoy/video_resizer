@@ -1,4 +1,5 @@
 // Shipping-container load documentation: container IDs, document categories, naming and email packs.
+import { invoiceFilename } from './invoice-documents.mjs';
 import { fileKind, extensionOf } from './fit-size.mjs';
 
 export const CATEGORIES = [
@@ -7,6 +8,8 @@ export const CATEGORIES = [
   { id: 'closed', label: 'Closed container doors', code: 'CLOSED_DOORS' },
   { id: 'seals', label: 'Seal photos', code: 'SEAL' },
   { id: 'invoices', label: 'Invoices', folder: '03_Invoices', code: 'INVOICE' },
+  { id: 'vat', label: 'VAT invoices (QR)', code: 'VAT' },
+  { id: 'packing', label: 'Packing lists', code: 'PACKING_LIST' },
   { id: 'weight', label: 'Weight tickets', folder: '04_Weight_Tickets', code: 'WEIGHT' },
   { id: 'shipping', label: 'Shipping line documents', code: 'SHIPPING_DOC' },
   { id: 'documents', label: 'Other documents', folder: '05_Documents', code: 'DOC' },
@@ -57,6 +60,7 @@ const RULES = [
 export function categorize(path) {
   const name = String(path).split(/[\\/]/).pop();
   const kind = fileKind(name);
+  if (kind !== 'video' && /pack(?:ing)?[\s_-]*list/i.test(name)) return 'packing';
   if (kind === 'image' && /\bseal\b/i.test(name.replace(/_/g, ' '))) return 'seals';
   for (const [id, pattern] of RULES) {
     // Photos of seals or bookings are still load photos; only scanned invoices/tickets change category.
@@ -69,7 +73,9 @@ export function categorize(path) {
 }
 
 // All outputs live directly in the selected folder / ZIP root.
-export function standardPath(container, categoryId, index, count, extension, originalName, rename = true, seal = '', stage = '', documentType = '') {
+export function standardPath(container, categoryId, index, count, extension, originalName, rename = true, seal = '', stage = '', documentType = '', invoiceNumber = '', hasQrCode = false) {
+  const invoiceName = rename && invoiceFilename(categoryId, invoiceNumber, hasQrCode, index, extension);
+  if (invoiceName) return invoiceName;
   const category = categoryById(categoryId);
   const root = container || 'Unassigned';
   const width = Math.max(2, String(count).length);

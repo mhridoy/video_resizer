@@ -17,3 +17,5 @@ PDF editing uses pdf-lib (MIT). PDF rendering uses Mozilla PDF.js / pdfjs-dist (
 Tesseract.js and tesseract.js-core (Apache-2.0) provide local OCR. English trained data from @tesseract.js-data/eng is copied into the app at build time. Runtime worker and model files are served locally; shipment files are not sent to an OCR service. See the dependency packages for their license notices.
 
 Pro shipment AI uses the Vercel AI SDK (`ai`, Apache-2.0) and AI Gateway. Model inference is an external service governed by the configured provider account terms; it is separate from the local OCR engine.
+
+Local QR decoding uses jsQR (Apache-2.0), https://github.com/cozmo/jsQR. Decoded QR contents are used only to determine presence and are not opened or uploaded.

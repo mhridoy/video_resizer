@@ -6,8 +6,8 @@ async function directoryAt(root, path, create = false) {
   for (const part of path) dir = await dir.getDirectoryHandle(part, { create });
   return dir;
 }
-export async function openSourceFolder(root, check = () => {}) {
-  if (await root.requestPermission({ mode: 'readwrite' }) !== 'granted') throw Error('Folder write access is needed to replace files.');
+export async function openSourceFolder(root, check = () => {}, writable = false) {
+  if (await root.requestPermission({ mode: writable ? 'readwrite' : 'read' }) !== 'granted') throw Error('Folder access was not granted.');
   const originals = [], files = [];
   async function walk(dir, prefix = '') {
     for await (const [name, handle] of dir.entries()) {

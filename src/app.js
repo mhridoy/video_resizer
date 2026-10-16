@@ -69,11 +69,12 @@ document.querySelectorAll('[data-open-tool]').forEach(el => el.addEventListener(
 $('reset-search').onclick = () => { category = 'all'; $('tool-search').value = ''; renderTools(); };
 document.addEventListener('keydown', e => { if (e.key === '/' && !$('home-panel').hidden && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { e.preventDefault(); $('tool-search').focus(); } });
 window.addEventListener('hashchange', () => { if (!window.desktop) navigate(location.hash.slice(1), { address: false }); });
-// Offer the right installer for the visitor's computer.
+// Mac users choose the build matching their processor; browser CPU hints are not reliable on every Mac.
 if (!window.desktop && /Mac/i.test(navigator.platform || navigator.userAgent)) {
-  const link = $('download-windows'), mac = arch => { link.href = `https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-${arch}.dmg`; };
-  mac('arm64');
-  navigator.userAgentData?.getHighEntropyValues?.(['architecture']).then(({ architecture }) => { if (architecture === 'x86') mac('x64'); }).catch(() => {});
+  const link = $('download-windows');
+  link.href = 'https://github.com/mhridoy/video_resizer/releases/latest';
+  link.querySelector('span:last-child').textContent = 'Mac downloads';
+  link.title = 'Choose Apple silicon (M-series) or Intel from the release assets';
 }
 if (window.desktop) { $('download-windows').hidden = true; $('mode').textContent = 'Desktop edition'; document.querySelector('.desktop-banner').hidden = true; }
 document.querySelector('.skip-link').addEventListener('click', e => { e.preventDefault(); $('main-content').setAttribute('tabindex', '-1'); $('main-content').focus(); });
