@@ -1,6 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 export default defineConfig(({ mode }) => ({
-  base: './', optimizeDeps: { exclude: ['@ffmpeg/ffmpeg'] },
+  base: './', worker: { format: 'es' }, optimizeDeps: { exclude: ['@ffmpeg/ffmpeg'] },
   plugins: [{
     name: 'shipment-ai-api',
     configureServer(server) {

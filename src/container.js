@@ -45,12 +45,20 @@ export function activateContainerTool() {
 }
 
 async function refreshAIStatus() {
+  const local = $('cp-ai-engine').value === 'local';
+  for (const id of ['cp-ai-access','cp-ai-access-label','cp-ai-access-note']) $(id).hidden = local;
+  if(local) {
+    $('cp-ai-state').textContent = 'Free local ML + OCR + QR. No API key. First use downloads about 154 MB of model weights; photos stay on this device. Loading estimates may need review.';
+    $('cp-ai-state').classList.remove('warn'); $('cp-local-mode').hidden = false; return;
+  }
   try {
     const service = await shipmentAIStatus();
+    if ($('cp-ai-engine').value !== 'cloud') return;
     $('cp-ai-state').textContent = service.available ? 'AI service configured. Enter your access code to analyze shipment previews.' : 'Pro AI is not configured. With Pro AI on, preparation stops and original files are not replaced. Configure the server or choose local mode below.';
     $('cp-ai-state').classList.toggle('warn', !service.available);
     $('cp-local-mode').hidden = service.available;
   } catch {
+    if ($('cp-ai-engine').value !== 'cloud') return;
     $('cp-ai-state').textContent = 'AI service could not be reached. Preparation with Pro AI cannot finish until it reconnects. Local mode is available.';
     $('cp-ai-state').classList.add('warn'); $('cp-local-mode').hidden = false;
   }
@@ -160,7 +168,11 @@ async function readAI() {
   if (!pendingImages.length) { analysisProblem = ''; return; }
   aiController = new AbortController();
   try {
-    await analyzeShipment(pendingImages, {
+    const local = $('cp-ai-engine').value === 'local';
+    if(local) await readLocalItems(pendingImages);
+    aiController.signal.throwIfAborted();
+    const analyze = local ? (await import('./shipment-local.js')).analyzeLocalShipment : analyzeShipment;
+    await analyze(pendingImages, {
       accessCode: $('cp-ai-access').value.trim(), signal: aiController.signal, status: setStatus,
       onResult: found => {
         const item = items.find(value => String(value.id) === found.id);
@@ -334,7 +346,7 @@ function render() {
 function setBusy(value) {
   busy = value;
   $('container-panel').setAttribute('aria-busy', String(value));
-  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-standard', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
+  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-standard', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-ai-engine', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
   document.querySelectorAll('[data-cp-limit], #cp-results button').forEach(button => { button.disabled = value; });
   $('cp-start').hidden = value; $('cp-cancel').hidden = !value; $('cp-progress-wrap').hidden = !value;
   items.forEach(rowFor); render();
@@ -683,7 +695,7 @@ $('cp-clear').onclick = () => {
 };
 $('cp-limit').addEventListener('input', () => { syncPresets(); clearPacks(); });
 $('cp-headroom').addEventListener('change', clearPacks);
-$('cp-ai').addEventListener('change', () => { analysisProblem = ''; clearPacks(); setStatus($('cp-ai').checked ? 'Pro AI enabled. Preview images are sent to the AI service.' : 'Local mode: loading percentages require manual selection.'); });
+$('cp-ai').addEventListener('change', () => { analysisProblem = ''; clearPacks(); setStatus($('cp-ai').checked ? 'Automatic detection enabled with the selected engine.' : 'Local mode: loading percentages require manual selection.'); });
 $('cp-standard').addEventListener('change', () => {
   if ($('cp-standard').checked) applyStandard();
   else items.forEach(item => { item.included = true; delete item.manualIncluded; item.selectionReason = ''; });
@@ -728,3 +740,5 @@ zone.addEventListener('drop', async event => {
   } catch (error) { if (error.name !== 'AbortError') setStatus(error.message); }
 });
 window.addEventListener('beforeunload', event => { if (busy || pending()) { event.preventDefault(); event.returnValue = ''; } });
+
+$('cp-ai-engine').addEventListener('change', () => { for (const item of items) item.ai = undefined; analysisProblem = ''; clearPacks(); refreshAIStatus(); render(); });

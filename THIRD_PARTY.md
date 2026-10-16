@@ -19,3 +19,5 @@ Tesseract.js and tesseract.js-core (Apache-2.0) provide local OCR. English train
 Pro shipment AI uses the Vercel AI SDK (`ai`, Apache-2.0) and AI Gateway. Model inference is an external service governed by the configured provider account terms; it is separate from the local OCR engine.
 
 Local QR decoding uses jsQR (Apache-2.0), https://github.com/cozmo/jsQR. Decoded QR contents are used only to determine presence and are not opened or uploaded.
+
+- Transformers.js (`@huggingface/transformers`): Apache-2.0; ONNX Runtime: MIT. Local vision uses the MIT-licensed CLIP weights from https://huggingface.co/Xenova/clip-vit-base-patch32 (converted from OpenAI CLIP), downloaded on first use. Model classification is an estimate, not a measured loading percentage.

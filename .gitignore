@@ -10,3 +10,5 @@ release/
 public/ocr/
 .env*
 !.env.example
+
+public/ml/
