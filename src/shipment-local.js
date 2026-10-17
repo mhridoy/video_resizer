@@ -27,7 +27,7 @@ export async function analyzeLocalShipment(items,{signal,status,onResult}) {
     status(`Local ML: ${index+1}/${items.length} · ${item.file.name}`);
     const document = ['weight','invoices','vat','packing','shipping','documents'].includes(item.category);
     let found={category:item.category,stage:'',confidence:1,reason:'Read locally with OCR and QR detection.'};
-    if(item.kind==='image' && !document && item.category!=='seals') found=await classify(item.file,signal,status);
+    if(item.kind==='image' && !document && item.category!=='seals') found=await classify(item.mlPreview || item.file,signal,status);
     signal.throwIfAborted();
     onResult({id:String(item.id),...found,quality:0,duplicateOf:null,documentType:item.documentType || 'SHIPPING_DOC',
       invoiceNumber:item.invoiceNumber || '',hasQrCode:!!item.hasQrCode,
