@@ -58,6 +58,10 @@ jobs:
       - run: npm run build && npx electron-builder --mac --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # electron-builder skips signing on pull requests, which leaves the bundle carrying
+          # Electron's own stale signature and fails the verification below. No certificate is
+          # configured here, so this only means a pull request is ad-hoc signed like main.
+          CSC_FOR_PULL_REQUEST: 'true'
       - name: Verify Mac app signatures and disk images
         run: |
           for bundle in release/*/"Binary Beat.app"; do

@@ -10,6 +10,14 @@ test('reads chat identifiers, weight tickets, and typed shipping documents', () 
   const found = detectShipmentText('[15/10/26, 13:00] Person: Container CSQU 305438-3\nSeal No: ABC1234567');
   assert.equal(found.containers[0].id, 'CSQU3054383');
   assert.equal(found.seals[0].id, 'ABC1234567');
+  // Seals are stamped with the owner prefix split from the serial, and sit next to other text.
+  for (const [text, id] of [['SEAL NO ML 0098812', 'ML0098812'], ['SEAL: ML-US 1234567', 'MLUS1234567'],
+    ['SEAL NO. ML0098812', 'ML0098812'], ['SEAL NO 0098812 GROSS 32450 KG', '0098812'], ['SEAL 445566', '445566']]) {
+    assert.deepEqual(detectShipmentText(text).seals.map(value => value.id), [id], text);
+  }
+  for (const text of ['SEALED CARTONS 20', 'SEAL NO: AB', 'SEAL NO: ML']) {
+    assert.deepEqual(detectShipmentText(text).seals.filter(value => value.explicit), [], text);
+  }
   assert.equal(detectShipmentText('INVOICE 5673 TICKET ID 42436 NET WEIGHT 21990 KG').category, 'weight');
   assert.equal(detectShipmentText('MAX GROSS 32500 TARE 3750 NET 28750').category, null);
   for (const [text, type] of [['Container Placement Order','CONTAINER_PLACEMENT_ORDER'], ['Terminal Handling Operation','TERMINAL_HANDLING'], ['Booking Confirmation','BOOKING_CONFIRMATION'], ['Empty Release Order','CONTAINER_RELEASE_ORDER'], ['Bill of Lading','BILL_OF_LADING'], ['Equipment Interchange Receipt','EIR']]) {

@@ -6,6 +6,8 @@ import { icon } from './icons.js';
 import { LOADING_STAGES, suggestLoadingPhotos } from '../shared/loading-photos.mjs';
 import { analyzeShipment, shipmentAIStatus } from './shipment-ai.js';
 import { fingerprintPhoto } from './photo-fingerprint.js';
+import { readPhoto } from './photo-source.js';
+import { mapLimit, photoConcurrency } from '../shared/parallel.mjs';
 import { detectShipmentText, resolveShipmentGroup } from '../shared/shipment-detection.mjs';
 
 const $ = id => document.getElementById(id);
@@ -116,10 +118,6 @@ async function addFiles(input) {
       items.push(item); addedItems.push(item);
     }
     clearPacks(); render();
-    for (const item of addedItems.filter(item => item.kind === 'image')) {
-      if (cancelled) break;
-      try { item.fingerprint = await fingerprintPhoto(item.file); } catch { item.review = 'Photo preview unavailable.'; }
-    }
     if (!$('cp-ai').checked) await readLocalItems(addedItems);
     if ($('cp-ai').checked && !cancelled) {
       try { await readAI(); } catch (error) { analysisProblem = cancelled ? 'AI analysis cancelled.' : error.message; }
@@ -135,19 +133,31 @@ async function addFiles(input) {
 }
 
 async function readLocalItems(list) {
-  if (!$('cp-detect').checked || cancelled) return;
   const pending = list.filter(item => ['image', 'pdf'].includes(item.kind) && !item.localRead);
-  if (!pending.length) return;
-  let scanner;
-  setStatus('Loading local photo reader…');
+  if (!pending.length || cancelled) return;
+  const reading = $('cp-detect').checked;
+  let scanner, done = 0;
+  const lanes = photoConcurrency();
+  if (reading) setStatus(`Loading local photo reader (${lanes} at a time)…`);
   try {
-    scanner = await (await import('./shipment-ocr.js')).createShipmentScanner();
-    for (const [index, item] of pending.entries()) {
-      if (cancelled) break;
-      setStatus(`Reading file ${index + 1} of ${pending.length}: ${item.file.name}`);
-      const check = () => { if (cancelled) throw Error('Cancelled'); };
+    if (reading) scanner = await (await import('./shipment-ocr.js')).createShipmentScanner(lanes);
+    const check = () => { if (cancelled) throw Error('Cancelled'); };
+    await mapLimit(pending, lanes, async item => {
+      if (cancelled) return;
+      // Decode the photo once here: OCR, QR, the seal crop and the duplicate
+      // fingerprint all read from this one copy instead of decoding it again each.
+      let source;
       try {
-        const found = item.kind === 'pdf' ? await (await import('./shipment-pdf.js')).readShipmentPdf(item.file, scanner, check) : await scanner.scan(item.file, check);
+        if (item.kind === 'image') source = await readPhoto(item.file);
+        if (source) {
+          try { item.fingerprint = await fingerprintPhoto(source); } catch { item.review = 'Photo preview unavailable.'; }
+          // Keep a small copy for the classifier so it never decodes the original again.
+          try { item.mlPreview = await source.previewBlob(); } catch { item.mlPreview = undefined; }
+        }
+        if (!reading) return;
+        const found = item.kind === 'pdf'
+          ? await (await import('./shipment-pdf.js')).readShipmentPdf(item.file, scanner, check)
+          : await scanner.scan(source || item.file, check);
         item.evidence = {
           containers: [...new Map([...item.evidence.containers, ...found.containers].map(value => [value.id, value])).values()],
           seals: [...new Map([...item.evidence.seals, ...found.seals].map(value => [value.id, value])).values()],
@@ -159,7 +169,11 @@ async function readLocalItems(list) {
         if (found.possibleSeal) item.review = 'Seal photo kept. Number is optional.';
         item.localRead = true;
       } catch (error) { if (!cancelled) item.review = 'Could not read this file. Verify its category and numbers manually.'; }
-    }
+      finally {
+        source?.close();
+        if (reading) setStatus(`Reading files: ${++done} of ${pending.length}`);
+      }
+    });
   } finally { await scanner?.close(); }
 }
 

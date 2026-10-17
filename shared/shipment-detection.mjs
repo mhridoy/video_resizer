@@ -1,6 +1,25 @@
 import { invoiceEvidence } from './invoice-documents.mjs';
 import { parseContainer, safeIdentifier } from './container.mjs';
 
+// A seal is written many ways: "SEAL NO 0098812", "SEAL NO ML 0098812", "SEAL: ML-US 1234567".
+// Take the words after the label while they still read as one number: a short owner prefix,
+// then the serial. Stop at the first ordinary word so neighbouring text is never absorbed.
+function labelledSeals(text) {
+  const found = [];
+  for (const label of text.matchAll(/\bSEAL(?:\s*(?:NUMBER|NO\.?|ID|#))?[\s:=-]+/g)) {
+    let value = '';
+    for (const word of text.slice(label.index + label[0].length).split(/\s+/)) {
+      const cleaned = safeIdentifier(word).replace(/-/g, '');
+      const hasDigit = /\d/.test(cleaned);
+      if (!cleaned || (!hasDigit && (/\d/.test(value) || cleaned.length > 4))) break;
+      value += cleaned;
+      if (value.length > 24) { value = ''; break; }
+    }
+    if (/\d{4}/.test(value)) found.push(value);
+  }
+  return found;
+}
+
 // Exported chat and OCR text are data only. Nothing in them is executed.
 export function detectShipmentText(input, { hasQrCode = false } = {}) {
   const text = String(input || '').replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').toUpperCase();
@@ -36,9 +55,7 @@ export function detectShipmentText(input, { hasQrCode = false } = {}) {
   ];
   const documentType = shippingRules.find(([, pattern]) => pattern.test(text))?.[0] || '';
   const seals = new Map();
-  for (const match of text.matchAll(/\bSEAL(?:\s*(?:NUMBER|NO\.?|ID|#))?[\s:=-]+([A-Z0-9-]{5,24})\b/g)) {
-    if (/\d{4}/.test(match[1])) seals.set(safeIdentifier(match[1]), { id: safeIdentifier(match[1]), explicit: true });
-  }
+  for (const value of labelledSeals(text)) seals.set(value, { id: value, explicit: true });
   // Bolt seals often carry only a serial, without the word "seal". Require a long
   // letter prefix and serial, and never interpret container IDs or document IDs as seals.
   if (!weight && !invoice && !billing.category && !documentType && text.length < 500) for (const match of text.matchAll(/\b([A-Z]{3,6}\d{6,10})\b/g)) {
