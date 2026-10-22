@@ -19,9 +19,9 @@ export async function readShipmentPdf(file, scanner, check) {
     const pdf=await loading.promise;
     for(let n=1;n<=Math.min(pdf.numPages,3);n++) {
       check();const page=await pdf.getPage(n), content=await page.getTextContent();
-      const text=content.items.map(item=>item.str||'').join(' ');
+      const text=content.items.map(item=>(item.str||'')+(item.hasEOL?'\n':' ')).join('');
       const preview=await renderPage(page), hasQrCode=await hasShipmentQr(preview);
-      let found=detectShipmentText(text,{hasQrCode});
+      let found={...detectShipmentText(text,{hasQrCode}),text};
       if(text.trim().length<30 && scanner) found=await scanner.scan(preview,check,hasQrCode);
       readings.push(found);page.cleanup();
     }
@@ -34,6 +34,7 @@ export async function readShipmentPdf(file, scanner, check) {
       seals:[...new Map(readings.flatMap(value=>value.seals).map(value=>[value.id,value])).values()],
       category,hasQrCode,invoiceNumber:numbers.length===1?numbers[0]:'',invoiceConflict:numbers.length>1||readings.some(value=>value.invoiceConflict),
       documentType:readings.find(value=>value.documentType)?.documentType,
+      text:readings.map(value=>value.text||'').join('\n'),
     };
   } finally {await loading.destroy();}
 }

@@ -3,9 +3,12 @@ import { fileKind, safeRelativePath, extensionOf } from '../shared/fit-size.mjs'
 import { CATEGORIES, parseContainer, detectContainer, categorize, standardPath, importableFromZip, allocateBudget, SHARE_WEIGHT, isChatTranscript, safeIdentifier, uniqueOutputName, SHIPPING_DOCUMENTS } from '../shared/container.mjs';
 import { shrinkFile, cancelShrink } from './shrink.js';
 import { icon } from './icons.js';
-import { LOADING_STAGES, suggestLoadingPhotos } from '../shared/loading-photos.mjs';
+import { LOADING_STAGES } from '../shared/loading-photos.mjs';
+import { extractShipmentFields, shipmentSummary } from '../shared/shipment-summary.mjs';
 import { analyzeShipment, shipmentAIStatus } from './shipment-ai.js';
 import { fingerprintPhoto } from './photo-fingerprint.js';
+import { readPhoto } from './photo-source.js';
+import { mapLimit, photoConcurrency } from '../shared/parallel.mjs';
 import { detectShipmentText, resolveShipmentGroup } from '../shared/shipment-detection.mjs';
 
 const $ = id => document.getElementById(id);
@@ -37,6 +40,7 @@ function defaultContainer() {
   return parsed?.id || '';
 }
 const sealOf = item => item.seal || safeIdentifier($('cp-seal').value);
+const trailerOf = item => item.trailer || safeIdentifier($('cp-trailer').value);
 const containerOf = item => item.container?.id || defaultContainer() || 'Unassigned';
 
 export function activateContainerTool() {
@@ -116,17 +120,13 @@ async function addFiles(input) {
       items.push(item); addedItems.push(item);
     }
     clearPacks(); render();
-    for (const item of addedItems.filter(item => item.kind === 'image')) {
-      if (cancelled) break;
-      try { item.fingerprint = await fingerprintPhoto(item.file); } catch { item.review = 'Photo preview unavailable.'; }
-    }
     if (!$('cp-ai').checked) await readLocalItems(addedItems);
     if ($('cp-ai').checked && !cancelled) {
       try { await readAI(); } catch (error) { analysisProblem = cancelled ? 'AI analysis cancelled.' : error.message; }
     }
     resolveSources();
-    applyStandard();
     const detected = new Set(addedItems.map(item => item.container?.id).filter(Boolean));
+    renderChecklist();
     setStatus(`${addedItems.length} files imported · ${detected.size} container numbers detected. ${cancelled ? 'Photo reading cancelled; some files need manual review. ' : ''}${addedItems.filter(item => !item.included).length} similar / extra photos excluded. ${analysisProblem || 'Selection complete.'} ${importWarnings.join(' ')}`);
   } finally {
     sortItems(); setBusy(false); render();
@@ -135,31 +135,53 @@ async function addFiles(input) {
 }
 
 async function readLocalItems(list) {
-  if (!$('cp-detect').checked || cancelled) return;
+  const reading = $('cp-detect').checked;
+  // Fingerprints and previews only serve photo selection and the vision model; without
+  // either, decoding every photo would buy nothing, so the default import skips it.
+  const needsPixels = reading || $('cp-ai').checked;
+  if (!needsPixels) return;
   const pending = list.filter(item => ['image', 'pdf'].includes(item.kind) && !item.localRead);
-  if (!pending.length) return;
-  let scanner;
-  setStatus('Loading local photo reader…');
+  if (!pending.length || cancelled) return;
+  let scanner, done = 0;
+  const lanes = photoConcurrency();
+  if (reading) setStatus(`Loading local photo reader (${lanes} at a time)…`);
   try {
-    scanner = await (await import('./shipment-ocr.js')).createShipmentScanner();
-    for (const [index, item] of pending.entries()) {
-      if (cancelled) break;
-      setStatus(`Reading file ${index + 1} of ${pending.length}: ${item.file.name}`);
-      const check = () => { if (cancelled) throw Error('Cancelled'); };
+    if (reading) scanner = await (await import('./shipment-ocr.js')).createShipmentScanner(lanes);
+    const check = () => { if (cancelled) throw Error('Cancelled'); };
+    await mapLimit(pending, lanes, async item => {
+      if (cancelled) return;
+      // Decode the photo once here: OCR, QR, the seal crop and the duplicate
+      // fingerprint all read from this one copy instead of decoding it again each.
+      let source;
       try {
-        const found = item.kind === 'pdf' ? await (await import('./shipment-pdf.js')).readShipmentPdf(item.file, scanner, check) : await scanner.scan(item.file, check);
+        if (item.kind === 'image' && (reading || $('cp-ai').checked)) source = await readPhoto(item.file);
+        if (source && $('cp-ai').checked) {
+          try { item.fingerprint = await fingerprintPhoto(source); } catch { item.review = 'Photo preview unavailable.'; }
+          // Keep a small copy for the classifier so it never decodes the original again.
+          try { item.mlPreview = await source.previewBlob(); } catch { item.mlPreview = undefined; }
+        }
+        if (!reading) return;
+        const found = item.kind === 'pdf'
+          ? await (await import('./shipment-pdf.js')).readShipmentPdf(item.file, scanner, check)
+          : await scanner.scan(source || item.file, check);
         item.evidence = {
           containers: [...new Map([...item.evidence.containers, ...found.containers].map(value => [value.id, value])).values()],
           seals: [...new Map([...item.evidence.seals, ...found.seals].map(value => [value.id, value])).values()],
+          trailers: [...new Map([...(item.evidence.trailers || []), ...(found.trailers || [])].map(value => [value.id, value])).values()],
         };
         if (found.category) item.category = found.category;
+        item.fields = extractShipmentFields(found.text);
         if (found.documentType) item.documentType = found.documentType;
         item.invoiceNumber = found.invoiceNumber || item.invoiceNumber || ''; item.hasQrCode = found.hasQrCode === true;
         if (found.invoiceConflict) item.review = 'Multiple invoice numbers: verify the reference.';
         if (found.possibleSeal) item.review = 'Seal photo kept. Number is optional.';
         item.localRead = true;
       } catch (error) { if (!cancelled) item.review = 'Could not read this file. Verify its category and numbers manually.'; }
-    }
+      finally {
+        source?.close();
+        if (reading) setStatus(`Reading files: ${++done} of ${pending.length}`);
+      }
+    });
   } finally { await scanner?.close(); }
 }
 
@@ -184,6 +206,7 @@ async function readAI() {
         item.evidence = {
           containers: [...new Map([...item.evidence.containers, ...(found.container ? [found.container] : [])].map(value => [value.id, value])).values()],
           seals: [...new Map([...item.evidence.seals, ...(found.seal ? [{ id: found.seal, explicit: true }] : [])].map(value => [value.id, value])).values()],
+          trailers: item.evidence.trailers || [],
         };
         item.review = found.category === 'seals' && !found.seal ? 'Seal photo kept. Number is optional.' : found.reason;
       },
@@ -203,20 +226,10 @@ function resolveSources() {
     const item = group[index];
     if (!item.manualContainer) item.container = value.container;
     if (!item.manualSeal) item.seal = value.seal;
+    item.trailer = value.trailer;
     item.review = value.review || item.review;
   });
 }
-function applyStandard() {
-  if (!$('cp-standard').checked || cancelled) return;
-  for (const group of groupByAllSources()) {
-    const suggestions = new Map(suggestLoadingPhotos(group).map(value => [value.id, value]));
-    group.forEach(item => {
-      Object.assign(item, suggestions.get(item.id));
-      if (item.manualIncluded !== undefined && item.category === 'photos') item.included = item.manualIncluded;
-    });
-  }
-}
-
 function sortItems() {
   const order = Object.fromEntries(CATEGORIES.map((category, index) => [category.id, index]));
   items.sort((a, b) => containerOf(a).localeCompare(containerOf(b)) || order[a.category] - order[b.category] || a.path.localeCompare(b.path, undefined, { numeric: true }));
@@ -258,11 +271,11 @@ function rowFor(item) {
       const value = containerInput.value.trim(), parsed = parseContainer(value);
       if (value && !parsed) { setStatus('Container number must have 4 letters and 7 digits.'); rowFor(item); return; }
       item.manualContainer = true; item.container = parsed; item.review = parsed && !parsed.valid ? 'Container check digit does not match.' : '';
-      applyStandard(); clearPacks(); sortItems(); render();
+      clearPacks(); sortItems(); render();
     };
     const sealInput = el('input', 'table-id'); sealInput.placeholder = 'Seal number';
     sealInput.setAttribute('aria-label', `Seal for ${item.path}`);
-    sealInput.onchange = () => { item.manualSeal = true; item.seal = safeIdentifier(sealInput.value); clearPacks(); rowFor(item); };
+    sealInput.onchange = () => { item.manualSeal = true; item.seal = safeIdentifier(sealInput.value); clearPacks(); rowFor(item); renderChecklist(); };
     const detectionNote = el('small', 'detection-note');
     container.append(containerInput, sealInput, detectionNote);
     const category = el('td');
@@ -280,7 +293,7 @@ function rowFor(item) {
     for (const stage of LOADING_STAGES) stageSelect.append(new Option(`${stage}% loaded`, String(stage)));
     stageSelect.onchange = () => {
       item.stage = stageSelect.value === '' ? '' : Number(stageSelect.value); item.included = true;
-      item.manualStage = item.stage; applyStandard(); clearPacks(); render();
+      item.manualStage = item.stage; clearPacks(); render();
     };
     const includeLabel = el('label', 'include-photo'), included = el('input'); included.type = 'checkbox';
     included.setAttribute('aria-label', `Include ${item.path}`);
@@ -305,13 +318,14 @@ function rowFor(item) {
   const id = containerOf(item);
   containerInput.value = id === 'Unassigned' ? '' : id; containerInput.disabled = busy || folderReplaced;
   sealInput.value = sealOf(item); sealInput.disabled = busy || folderReplaced;
-  detectionNote.textContent = item.review || (!item.container && !defaultContainer() ? 'Container not detected' : !sealOf(item) ? 'Seal number optional' : 'Verify detected numbers');
+  detectionNote.textContent = [item.review || (!item.container && !defaultContainer() ? 'Container not detected' : !sealOf(item) ? 'Seal number optional' : 'Verify detected numbers'), trailerOf(item) && `Trailer ${trailerOf(item)}`].filter(Boolean).join(' · ');
   folder.textContent = item.sendName || item.path;
   folder.title = item.sendName || item.path;
   invoiceInput.hidden = !['invoices','vat','packing'].includes(item.category); invoiceInput.value = item.invoiceNumber || ''; invoiceInput.disabled = busy || folderReplaced;
   documentSelect.hidden = item.category !== 'shipping'; documentSelect.disabled = busy || folderReplaced; documentSelect.value = item.documentType || 'SHIPPING_DOC';
-  stageSelect.hidden = item.category !== 'photos'; stageSelect.disabled = busy || folderReplaced; stageSelect.value = String(item.stage ?? '');
-  includeLabel.hidden = item.category !== 'photos'; included.checked = item.included !== false; included.disabled = busy || folderReplaced;
+  const selecting = false;
+  stageSelect.hidden = item.category !== 'photos' || !selecting; stageSelect.disabled = busy || folderReplaced; stageSelect.value = String(item.stage ?? '');
+  includeLabel.hidden = item.category !== 'photos' || !selecting; included.checked = item.included !== false; included.disabled = busy || folderReplaced;
   selectionNote.textContent = item.category === 'photos' ? item.selectionReason || '' : '';
   select.value = item.category; select.disabled = busy || folderReplaced || item.kind === 'video';
   size.textContent = formatSize(item.file.size);
@@ -326,6 +340,7 @@ function rowFor(item) {
 
 function render() {
   $('cp-rows').replaceChildren(...items.map(rowFor));
+  renderChecklist();
   $('cp-table-wrap').hidden = !items.length; $('cp-empty').hidden = items.length > 0;
   $('cp-dropzone').classList.toggle('compact', items.length > 0);
   const counts = Object.fromEntries(CATEGORIES.map(category => [category.id, 0]));
@@ -346,7 +361,7 @@ function render() {
 function setBusy(value) {
   busy = value;
   $('container-panel').setAttribute('aria-busy', String(value));
-  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-standard', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-ai-engine', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
+  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-trailer', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-ai-engine', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
   document.querySelectorAll('[data-cp-limit], #cp-results button').forEach(button => { button.disabled = value; });
   $('cp-start').hidden = value; $('cp-cancel').hidden = !value; $('cp-progress-wrap').hidden = !value;
   items.forEach(rowFor); render();
@@ -376,13 +391,13 @@ async function prepareFiles(automatic = false) {
   if (!automatic && pending() && !confirm('Prepare the files again? Downloads you have not saved will be replaced.')) return;
   if ($('cp-ai').checked) {
     cancelled = false; setBusy(true);
-    try { await readAI(); resolveSources(); applyStandard(); }
+    try { await readAI(); resolveSources(); }
     catch (error) { analysisProblem = cancelled ? 'AI analysis cancelled.' : error.message; setStatus(analysisProblem); return; }
     finally { setBusy(false); }
     if (cancelled) return;
   } else {
     analysisProblem = ''; cancelled = false; setBusy(true);
-    try { await readLocalItems(items); resolveSources(); applyStandard(); }
+    try { await readLocalItems(items); resolveSources(); renderChecklist(); }
     catch (error) { setStatus(`Local reading unavailable: ${error.message}`); return; }
     finally { setBusy(false); }
     if (cancelled) return;
@@ -691,16 +706,77 @@ $('cp-pick-files').onclick = () => { if (!busy && !sourceFolder) $('cp-files-inp
 for (const id of ['cp-files-input', 'cp-folder-input']) $(id).onchange = event => { const picked = [...event.target.files]; event.target.value = ''; addFiles(picked).catch(error => setStatus(error.message)); };
 $('cp-clear').onclick = () => {
   if (busy || (pending() && !confirm('Clear all files? Downloads you have not saved will be lost.'))) return;
-  items.forEach(item => { if (item.previewUrl) URL.revokeObjectURL(item.previewUrl); }); items = []; sourceFolder = undefined; folderReplaced = false; analysisProblem = ''; importWarnings = []; clearPacks(); setBusy(false); setStatus('');
+  items.forEach(item => { if (item.previewUrl) URL.revokeObjectURL(item.previewUrl); }); items = []; sourceFolder = undefined; folderReplaced = false; analysisProblem = ''; importWarnings = []; clearPacks(); setBusy(false); setStatus(''); renderChecklist();
 };
 $('cp-limit').addEventListener('input', () => { syncPresets(); clearPacks(); });
 $('cp-headroom').addEventListener('change', clearPacks);
 $('cp-ai').addEventListener('change', () => { analysisProblem = ''; clearPacks(); setStatus($('cp-ai').checked ? 'Automatic detection enabled with the selected engine.' : 'Local mode: loading percentages require manual selection.'); });
-$('cp-standard').addEventListener('change', () => {
-  if ($('cp-standard').checked) applyStandard();
-  else items.forEach(item => { item.included = true; delete item.manualIncluded; item.selectionReason = ''; });
-  clearPacks(); render();
-});
+// What an email for a loaded container is expected to carry. Missing items are warned
+// about, never blocked: the files that are there are still prepared and sent.
+function renderChecklist() {
+  const list = $('cp-checklist');
+  const notes = [];
+  const byContainer = new Map();
+  for (const item of items.filter(entry => entry.included !== false)) {
+    const id = containerOf(item);
+    if (!byContainer.has(id)) byContainer.set(id, []);
+    byContainer.get(id).push(item);
+  }
+  for (const [id, group] of byContainer) {
+    const name = byContainer.size > 1 ? `${id}: ` : '';
+    if (id === 'Unassigned' && group.some(item => item.kind === 'image')) notes.push(`${name}No container number found. Type it under Shipment or check the photos.`);
+    if (!group.some(item => item.category === 'seals')) notes.push(`${name}No seal photo. Add a photo of the seal before sending.`);
+    else if (!group.some(item => sealOf(item))) notes.push(`${name}Seal photo found, but the number could not be read. Type it under Shipment.`);
+    if (!group.some(item => item.category === 'weight')) notes.push(`${name}No weight ticket. Add the weight ticket before sending.`);
+  }
+  list.replaceChildren(...notes.map(text => el('li', '', text)));
+  list.hidden = !notes.length;
+  renderEmailText(byContainer);
+}
+
+// One line per container for the email subject, and a short block for the body, from the
+// invoice first and the weight ticket after it. Edits made in the boxes survive re-renders
+// until the detected text itself changes.
+const DOCUMENTS = ['invoices', 'vat', 'packing', 'shipping', 'documents'];
+function renderEmailText(byContainer) {
+  const box = $('cp-email');
+  const cards = [];
+  for (const [id, group] of byContainer) {
+    const field = name => {
+      const from = list => list.map(item => item.fields?.[name]).find(Boolean);
+      return from(group.filter(item => DOCUMENTS.includes(item.category))) || from(group.filter(item => item.category === 'weight')) || from(group);
+    };
+    const weightFrom = [...group.filter(item => DOCUMENTS.includes(item.category)), ...group.filter(item => item.category === 'weight')].find(item => item.fields?.weightMt);
+    const text = shipmentSummary({
+      container: id === 'Unassigned' ? '' : id,
+      weightMt: weightFrom?.fields.weightMt, weightBasis: weightFrom?.fields.weightBasis,
+      seal: group.map(sealOf).find(Boolean), po: field('po'), forwarder: field('forwarder'),
+      trailer: group.map(trailerOf).find(Boolean),
+    });
+    if (!text.subject) continue;
+    const key = `${text.subject}\n${text.body}`;
+    const old = box.querySelector(`[data-container="${CSS.escape(id)}"]`);
+    if (old && old.dataset.key === key) { cards.push(old); continue; }
+    const card = el('div', 'email-text'); card.dataset.container = id; card.dataset.key = key;
+    const subject = el('textarea', 'mono-input'); subject.value = text.subject; subject.rows = 3; subject.setAttribute('aria-label', `Email subject for ${id}`);
+    const body = el('textarea', 'mono-input'); body.value = text.body; body.rows = text.body.split('\n').length; body.setAttribute('aria-label', `Email body for ${id}`);
+    const copy = (label, field) => {
+      const button = el('button', 'btn btn-secondary btn-sm', label);
+      button.onclick = async () => {
+        try { await navigator.clipboard.writeText(field.value); }
+        catch { field.select(); document.execCommand('copy'); }
+        button.textContent = 'Copied'; setTimeout(() => { button.textContent = label; }, 1400);
+      };
+      return button;
+    };
+    const actions = el('div', 'email-actions'); actions.append(copy('Copy subject', subject), copy('Copy body', body));
+    card.append(el('span', 'field-label', 'Subject'), subject, el('span', 'field-label', 'Body'), body, actions);
+    cards.push(card);
+  }
+  box.replaceChildren(...cards);
+  box.hidden = !cards.length;
+}
+
 function groupByAllSources() {
   const groups = new Map();
   for (const item of items) {
@@ -715,7 +791,8 @@ function groupByAllSources() {
   return [...groups.values()];
 }
 $('cp-seal').addEventListener('input', () => { clearPacks(); render(); });
-$('cp-container').addEventListener('input', () => { syncContainerField(); applyStandard(); clearPacks(); sortItems(); items.forEach(rowFor); render(); });
+$('cp-trailer').addEventListener('input', () => { renderChecklist(); items.forEach(rowFor); });
+$('cp-container').addEventListener('input', () => { syncContainerField(); clearPacks(); sortItems(); items.forEach(rowFor); render(); });
 for (const id of ['cp-reference', 'cp-rename']) $(id).addEventListener('input', () => { if (packs.length) buildPacks(emailBudget()); });
 document.querySelectorAll('[data-cp-limit]').forEach(button => { button.onclick = () => { $('cp-limit').value = button.dataset.cpLimit; syncPresets(); clearPacks(); }; });
 

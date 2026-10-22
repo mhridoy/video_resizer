@@ -1,18 +1,10 @@
 import jsQR from 'jsqr';
+import { readPhoto } from './photo-source.js';
 // Decode locally. QR payloads are not uploaded, logged, opened or treated as instructions.
-export async function hasShipmentQr(file) {
-  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const canvas = document.createElement('canvas');
+export async function hasShipmentQr(input) {
+  const source = input.imageData ? input : await readPhoto(input);
   try {
-    for (const edge of [1800, 2800]) {
-      const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
-      const image = ctx.getImageData(0,0,canvas.width,canvas.height);
-      if (jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'})) return true;
-      if (scale === 1) break;
-    }
-    return false;
-  } finally { bitmap.close(); canvas.width = canvas.height = 1; }
+    const image = source.imageData();
+    return Boolean(jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' }));
+  } finally { if (source !== input) source.close(); }
 }
