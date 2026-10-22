@@ -65,7 +65,7 @@ export function detectShipmentText(input, { hasQrCode = false } = {}) {
   }
   // Container doors also say GROSS / TARE / NET. Those words alone are not a ticket.
   const weight = /\b(?:WEIGH\s*BRIDGE|WEIGHING|WEIGHT\s*(?:TICKET|SLIP)|TICKET\s*(?:ID|NO)|[12]\s*(?:ST|ND)\s+WEIGHT)\b/.test(text)
-    || (/\bNET\s+WEIGHT\b/.test(text) && /\b(?:DATE|CUSTOMER|OPERATOR)\b/.test(text));
+    || (/\bNET\s+WEIGHT\b/.test(text) && /\b(?:DATE|CUSTOMER|OPERATOR)\b/.test(text) && !/\b(?:INVOICE|PROFORMA|PACKING\s+LIST)\b/.test(text));
   const billing = invoiceEvidence(input, hasQrCode);
   const invoice = !weight && /\b(?:INVOICE|PROFORMA)\b/.test(text);
   const shippingRules = [

@@ -4,6 +4,7 @@ import { CATEGORIES, parseContainer, detectContainer, categorize, standardPath, 
 import { shrinkFile, cancelShrink } from './shrink.js';
 import { icon } from './icons.js';
 import { LOADING_STAGES } from '../shared/loading-photos.mjs';
+import { extractShipmentFields, shipmentSummary } from '../shared/shipment-summary.mjs';
 import { analyzeShipment, shipmentAIStatus } from './shipment-ai.js';
 import { fingerprintPhoto } from './photo-fingerprint.js';
 import { readPhoto } from './photo-source.js';
@@ -169,6 +170,7 @@ async function readLocalItems(list) {
           trailers: [...new Map([...(item.evidence.trailers || []), ...(found.trailers || [])].map(value => [value.id, value])).values()],
         };
         if (found.category) item.category = found.category;
+        item.fields = extractShipmentFields(found.text);
         if (found.documentType) item.documentType = found.documentType;
         item.invoiceNumber = found.invoiceNumber || item.invoiceNumber || ''; item.hasQrCode = found.hasQrCode === true;
         if (found.invoiceConflict) item.review = 'Multiple invoice numbers: verify the reference.';
@@ -729,6 +731,50 @@ function renderChecklist() {
   }
   list.replaceChildren(...notes.map(text => el('li', '', text)));
   list.hidden = !notes.length;
+  renderEmailText(byContainer);
+}
+
+// One line per container for the email subject, and a short block for the body, from the
+// invoice first and the weight ticket after it. Edits made in the boxes survive re-renders
+// until the detected text itself changes.
+const DOCUMENTS = ['invoices', 'vat', 'packing', 'shipping', 'documents'];
+function renderEmailText(byContainer) {
+  const box = $('cp-email');
+  const cards = [];
+  for (const [id, group] of byContainer) {
+    const field = name => {
+      const from = list => list.map(item => item.fields?.[name]).find(Boolean);
+      return from(group.filter(item => DOCUMENTS.includes(item.category))) || from(group.filter(item => item.category === 'weight')) || from(group);
+    };
+    const weightFrom = [...group.filter(item => DOCUMENTS.includes(item.category)), ...group.filter(item => item.category === 'weight')].find(item => item.fields?.weightMt);
+    const text = shipmentSummary({
+      container: id === 'Unassigned' ? '' : id,
+      weightMt: weightFrom?.fields.weightMt, weightBasis: weightFrom?.fields.weightBasis,
+      seal: group.map(sealOf).find(Boolean), po: field('po'), forwarder: field('forwarder'),
+      trailer: group.map(trailerOf).find(Boolean),
+    });
+    if (!text.subject) continue;
+    const key = `${text.subject}\n${text.body}`;
+    const old = box.querySelector(`[data-container="${CSS.escape(id)}"]`);
+    if (old && old.dataset.key === key) { cards.push(old); continue; }
+    const card = el('div', 'email-text'); card.dataset.container = id; card.dataset.key = key;
+    const subject = el('textarea', 'mono-input'); subject.value = text.subject; subject.rows = 3; subject.setAttribute('aria-label', `Email subject for ${id}`);
+    const body = el('textarea', 'mono-input'); body.value = text.body; body.rows = text.body.split('\n').length; body.setAttribute('aria-label', `Email body for ${id}`);
+    const copy = (label, field) => {
+      const button = el('button', 'btn btn-secondary btn-sm', label);
+      button.onclick = async () => {
+        try { await navigator.clipboard.writeText(field.value); }
+        catch { field.select(); document.execCommand('copy'); }
+        button.textContent = 'Copied'; setTimeout(() => { button.textContent = label; }, 1400);
+      };
+      return button;
+    };
+    const actions = el('div', 'email-actions'); actions.append(copy('Copy subject', subject), copy('Copy body', body));
+    card.append(el('span', 'field-label', 'Subject'), subject, el('span', 'field-label', 'Body'), body, actions);
+    cards.push(card);
+  }
+  box.replaceChildren(...cards);
+  box.hidden = !cards.length;
 }
 
 function groupByAllSources() {

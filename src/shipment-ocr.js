@@ -39,13 +39,13 @@ export async function createShipmentScanner(size = photoConcurrency()) {
         const hasQrCode = knownQr ?? await hasShipmentQr(source);
         check();
         const found = detectShipmentText(data.text, { hasQrCode });
-        if (found.category) return found;
+        if (found.category) return { ...found, text: data.text };
         // Keep a likely seal photo even when the engraved serial cannot be read.
         // Do not spend time retrying the serial: the photo is the required evidence.
         const { canvas, context } = source.viewAt(320);
         try {
           const regions = sealRegions(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
-          return regions.length ? { ...found, category: 'seals', possibleSeal: true } : found;
+          return { ...found, text: data.text, ...(regions.length ? { category: 'seals', possibleSeal: true } : {}) };
         } finally { canvas.width = canvas.height = 1; }
       } finally {
         give(worker);

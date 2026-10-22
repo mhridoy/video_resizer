@@ -96,3 +96,8 @@ test('one trailer in an import is shared by its files', () => {
   const resolved = resolveShipmentGroup([record('TRUCK NO ABC 1234 WEIGH BRIDGE TICKET'), record('CSQU3054383')]);
   assert.deepEqual(resolved.map(value => value.trailer), ['ABC-1234', 'ABC-1234']);
 });
+
+test('an invoice that lists net weight and a date is still an invoice', () => {
+  assert.equal(detectShipmentText('COMMERCIAL INVOICE NO 551 DATE 12/10/2026 NET WEIGHT: 24,500 KGS').category, 'invoices');
+  assert.equal(detectShipmentText('NET WEIGHT 24,520 KG DATE 12/10/2026 OPERATOR SAM').category, 'weight');
+});
