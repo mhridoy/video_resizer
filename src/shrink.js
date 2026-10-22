@@ -1,11 +1,12 @@
 // Shrinks one file below a byte limit. Shared by the container pack and any future batch tools.
 import { replaceExtension, videoPlan, videoArgs, IMAGE_STEPS, scaledSize, extensionOf } from '../shared/fit-size.mjs';
+import { loadVideoEngine, stopVideoEngine, dropEngine, engineCores } from './video-engine.js';
 
 const native = window.desktop;
 const DOC_STEPS = [{ maxEdge: 2400, quality: 0.8 }, { maxEdge: 1800, quality: 0.7 }, { maxEdge: 1400, quality: 0.6 }, { maxEdge: 1000, quality: 0.5 }, { maxEdge: 800, quality: 0.42 }];
 const PDF_STEPS = [{ dpi: 110, quality: 0.7 }, { dpi: 90, quality: 0.6 }, { dpi: 72, quality: 0.5 }, { dpi: 60, quality: 0.4 }];
 const MAX_WEB_VIDEO = 1024 ** 3;
-let ffmpeg, ffmpegReady = false, loadController;
+let ffmpeg, ffmpegReady = false;
 const yieldToBrowser = () => new Promise(resolve => setTimeout(resolve, 0));
 
 // ---------- Images ----------
@@ -117,28 +118,9 @@ async function fitDoc(item, target, job) {
 
 // ---------- Video ----------
 async function browserEngine(job) {
-  if (ffmpeg && ffmpegReady) return ffmpeg;
-  job.status('Loading the video engine (about 32 MB). This happens once per session.');
-  const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-  job.check();
-  const engine = new FFmpeg(), controller = new AbortController();
-  ffmpeg = engine; ffmpegReady = false; loadController = controller;
-  let wasmURL;
-  try {
-    const base = new URL('./ffmpeg/', document.baseURI);
-    const get = async url => { const response = await fetch(url, { signal: controller.signal }); if (!response.ok) throw Error('Could not download the video engine. Check your connection and retry.'); return response; };
-    const manifest = await (await get(new URL('core.json', base))).json();
-    const parts = await Promise.all(manifest.chunks.map(async name => (await get(new URL(name, base))).arrayBuffer()));
-    job.check();
-    wasmURL = URL.createObjectURL(new Blob(parts, { type: 'application/wasm' }));
-    await engine.load({ coreURL: new URL('ffmpeg-core.js', base).href, wasmURL });
-    job.check();
-    ffmpegReady = true; return engine;
-  } catch (error) {
-    controller.abort(); engine.terminate();
-    if (ffmpeg === engine) { ffmpeg = undefined; ffmpegReady = false; }
-    throw error;
-  } finally { if (wasmURL) URL.revokeObjectURL(wasmURL); if (loadController === controller) loadController = undefined; }
+  const engine = await loadVideoEngine({ check: job.check, status: job.status });
+  ffmpeg = engine; ffmpegReady = true;
+  return engine;
 }
 
 async function fitVideoNative(item, target, job) {
@@ -178,7 +160,7 @@ async function fitVideoBrowser(item, target, job) {
     throw Error('Could not get this video under the limit.');
   } catch (error) {
     // A failed WASM instance can be left in a bad state; start fresh for the next file.
-    if (ffmpeg === engine) { engine.terminate(); ffmpeg = undefined; ffmpegReady = false; }
+    if (ffmpeg === engine) { dropEngine(engine); ffmpeg = undefined; ffmpegReady = false; }
     throw error;
   } finally {
     engine.off('log', logger); engine.off('progress', listener);
@@ -201,6 +183,6 @@ export async function shrinkFile(item, target, job) {
 
 export async function cancelShrink() {
   if (native) await native.cancelFit();
-  loadController?.abort();
-  if (ffmpeg) { ffmpeg.terminate(); ffmpeg = undefined; ffmpegReady = false; }
+  stopVideoEngine();
+  ffmpeg = undefined; ffmpegReady = false;
 }

@@ -1,11 +1,12 @@
 import { inputArgs, encodingArgs, validateOptions, isVideo } from '../shared/options.mjs';
 import { icon } from './icons.js';
+import { loadVideoEngine, stopVideoEngine, dropEngine, engineCores } from './video-engine.js';
 
 const $ = id => document.getElementById(id);
 const native = window.desktop;
 const queue = [];
 let busy = false, cancelled = false, ffmpeg, epoch = 0, ready = false, packaging = false;
-let outputDirectory, webDirectory, loadController, activeTool, progressTimer;
+let outputDirectory, webDirectory, activeTool, progressTimer;
 const pendingProgress = new Set();
 const bytes = n => n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`;
 function notice(message) { $('notice').textContent = message; }
@@ -179,35 +180,10 @@ document.addEventListener('drop', event => event.preventDefault());
 window.addEventListener('beforeunload', event => { if (busy || (!native && queue.some(f => f.url))) { event.preventDefault(); event.returnValue = ''; } });
 
 async function getBrowserEngine(token) {
-  if (ffmpeg && ready) return ffmpeg;
-  notice('Loading the video engine (about 32 MB). This happens once per session.');
-  const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-  if (cancelled || token !== epoch) throw new Error('Cancelled');
-  const engine = new FFmpeg(), controller = new AbortController();
-  ffmpeg = engine; ready = false; loadController = controller;
-  let wasmURL;
-  try {
-    const base = new URL('./ffmpeg/', document.baseURI);
-    const checkedFetch = async url => {
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) throw new Error('Could not download the video engine. Check your connection and retry.');
-      return response;
-    };
-    const manifest = await (await checkedFetch(new URL('core.json', base))).json();
-    const parts = await Promise.all(manifest.chunks.map(async name => (await checkedFetch(new URL(name, base))).arrayBuffer()));
-    if (cancelled || token !== epoch) throw new Error('Cancelled');
-    wasmURL = URL.createObjectURL(new Blob(parts, { type: 'application/wasm' }));
-    await engine.load({ coreURL: new URL('ffmpeg-core.js', base).href, wasmURL });
-    if (cancelled || token !== epoch) throw new Error('Cancelled');
-    ready = true; return engine;
-  } catch (error) {
-    controller.abort(); engine.terminate();
-    if (ffmpeg === engine) { ffmpeg = undefined; ready = false; }
-    throw error;
-  } finally {
-    if (wasmURL) URL.revokeObjectURL(wasmURL);
-    if (loadController === controller) loadController = undefined;
-  }
+  const check = () => { if (cancelled || token !== epoch) throw new Error('Cancelled'); };
+  const engine = await loadVideoEngine({ check, status: notice });
+  ffmpeg = engine; ready = true;
+  return engine;
 }
 async function uniqueOutputHandle(directory, filename) {
   const stem = filename.replace(/\.mp4$/i, '');
@@ -279,7 +255,7 @@ async function runBrowser(options, token) {
       file.status = cancelled ? 'cancelled' : 'error';
       file.error = cancelled ? '' : error.message || 'This browser ran out of memory. Try a smaller file or the desktop app.';
       // Reset the worker after errors so a damaged WASM instance cannot poison later files.
-      if (engine) { engine.terminate(); if (ffmpeg === engine) { ffmpeg = undefined; ready = false; } }
+      if (engine) { dropEngine(engine); if (ffmpeg === engine) { ffmpeg = undefined; ready = false; } }
     } finally {
       if (engine && listener) engine.off('progress', listener);
       if (engine && logger) engine.off('log', logger);
@@ -307,7 +283,7 @@ $('mute').addEventListener('change', syncControls);
 $('cancel').onclick = async () => {
   cancelled = true; ++epoch;
   $('batch-status').textContent = 'Cancelling…';
-  try { if (native) await native.cancel(); else { loadController?.abort(); ffmpeg?.terminate(); ffmpeg = undefined; ready = false; } }
+  try { if (native) await native.cancel(); else { stopVideoEngine(); ffmpeg = undefined; ready = false; } }
   catch (error) { notice(error.message); }
 };
 $('video-download-all').onclick = async () => {
