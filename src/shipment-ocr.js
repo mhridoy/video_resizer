@@ -36,9 +36,14 @@ export async function createShipmentScanner(size = photoConcurrency()) {
         check();
         const { data } = await worker.recognize(source.textCanvas());
         check();
-        const hasQrCode = knownQr ?? await hasShipmentQr(source);
-        check();
-        const found = detectShipmentText(data.text, { hasQrCode });
+        // A QR code only decides between an ordinary and a VAT invoice, and looking for one
+        // is the slowest step there is, so only invoices are searched.
+        let found = detectShipmentText(data.text, { hasQrCode: knownQr === true });
+        if (found.category === 'invoices' && knownQr === undefined) {
+          const hasQrCode = await hasShipmentQr(source);
+          check();
+          if (hasQrCode) found = detectShipmentText(data.text, { hasQrCode });
+        }
         if (found.category) return { ...found, text: data.text };
         // Keep a likely seal photo even when the engraved serial cannot be read.
         // Do not spend time retrying the serial: the photo is the required evidence.
