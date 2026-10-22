@@ -20,9 +20,11 @@ export async function readShipmentPdf(file, scanner, check) {
     for(let n=1;n<=Math.min(pdf.numPages,3);n++) {
       check();const page=await pdf.getPage(n), content=await page.getTextContent();
       const text=content.items.map(item=>(item.str||'')+(item.hasEOL?'\n':' ')).join('');
-      const preview=await renderPage(page), hasQrCode=await hasShipmentQr(preview);
-      let found={...detectShipmentText(text,{hasQrCode}),text};
-      if(text.trim().length<30 && scanner) found=await scanner.scan(preview,check,hasQrCode);
+      let found={...detectShipmentText(text),text};
+      // A scanned page has no text layer: read its picture. Otherwise only an invoice is
+      // rendered, to look for the QR code that marks a VAT invoice.
+      if(text.trim().length<30 && scanner) found=await scanner.scan(await renderPage(page),check);
+      else if(found.category==='invoices' && await hasShipmentQr(await renderPage(page))) found={...detectShipmentText(text,{hasQrCode:true}),text};
       readings.push(found);page.cleanup();
     }
     const numbers=[...new Set(readings.map(value=>value.invoiceNumber).filter(Boolean))];

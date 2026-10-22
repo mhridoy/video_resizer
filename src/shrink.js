@@ -1,4 +1,5 @@
 // Shrinks one file below a byte limit. Shared by the container pack and any future batch tools.
+import { mp4Duration } from '../shared/mp4-duration.mjs';
 import { replaceExtension, videoPlan, videoArgs, IMAGE_STEPS, scaledSize, extensionOf } from '../shared/fit-size.mjs';
 import { loadVideoEngine, stopVideoEngine, dropEngine, threaded } from './video-engine.js';
 
@@ -147,7 +148,10 @@ function videoDuration(file) {
 async function encodeVideoInBrowser(item, target, job, single) {
   if (item.file.size > MAX_WEB_VIDEO) throw Error('Over the 1 GB browser limit. Use the desktop app for this video.');
   // Read the length before the engine starts; the browser demuxes formats it can play.
-  let duration = await videoDuration(item.file);
+  // The header gives the length for any MP4/MOV, even one the browser cannot play; asking
+  // FFmpeg instead would end in an error the multi-core engine does not survive.
+  const read = async (start, end) => new Uint8Array(await item.file.slice(start, end).arrayBuffer());
+  let duration = await mp4Duration(read, item.file.size).catch(() => 0) || await videoDuration(item.file);
   const bytes = new Uint8Array(await item.file.arrayBuffer());
   const inputName = `input.${extensionOf(item.path) || 'mp4'}`;
   let log = '', attempt = 0;
