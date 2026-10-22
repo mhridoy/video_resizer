@@ -534,3 +534,8 @@ progress { transition: none; }
 .cell-send .btn { padding: 4px 8px; }
 @media (min-width: 1200px) { .cell-send .btn span { display: inline; } }
 @media (max-width: 1100px) { .workspace { grid-template-columns: minmax(0, 1fr) 18rem; } }
+
+/* Missing evidence: a warning, never a block. */
+.checklist { list-style: none; margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warning) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); display: grid; gap: 4px; font-size: .875rem; }
+.checklist li { color: var(--text); }
+.checklist li::before { content: "⚠ "; color: var(--warning); }

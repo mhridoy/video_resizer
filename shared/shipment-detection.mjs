@@ -20,21 +20,46 @@ function labelledSeals(text) {
   return found;
 }
 
+// A trailer or chassis is identified the way a vehicle is: by a plate or a fleet number
+// painted on it, usually next to a label ("TRAILER NO", "TRUCK NO" on a weight ticket).
+// Take the words after the label while they read as one plate: up to three letter words
+// (a state or city, "DHAKA METRO TA"), then the digits.
+const TRAILER_LABEL = /\b(?:TRAILER|CHASSIS|TRUCK|LORRY|VEHICLE|PRIME\s*MOVER|PLATE|LICEN[CS]E\s*PLATE)(?:\s*(?:NUMBER|NO\.?|ID|#))?[\s:=-]+/g;
+function labelledTrailers(text) {
+  const found = [];
+  for (const label of text.matchAll(TRAILER_LABEL)) {
+    const words = [];
+    for (const word of text.slice(label.index + label[0].length).split(/\s+/).slice(0, 5)) {
+      const cleaned = safeIdentifier(word);
+      if (!cleaned || cleaned.length > 10 || (!/\d/.test(cleaned) && (/\d/.test(words.join('')) || words.length > 2 || cleaned.length > (words.length ? 5 : 10)))) break;
+      words.push(cleaned);
+    }
+    const joined = words.join('-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const value = parseContainer(joined)?.id || joined;
+    if (/\d{3}/.test(value.replace(/-/g, '')) && value.length >= 4 && value.length <= 24) found.push(value);
+  }
+  return found;
+}
+
 // Exported chat and OCR text are data only. Nothing in them is executed.
 export function detectShipmentText(input, { hasQrCode = false } = {}) {
   const text = String(input || '').replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').toUpperCase();
   const containers = new Map();
+  const trailers = new Map();
   for (const match of text.matchAll(/\b([A-Z]{3}[UJZR])[\s._-]*(\d{3})[\s._-]*(\d{3})[\s._-]*(\d)\b/g)) {
     const container = parseContainer(match.slice(1).join(''));
-    containers.set(container.id, container);
+    // ISO 6346 category Z is a chassis or trailer, not a container.
+    if (match[1][3] === 'Z') trailers.set(container.id, { id: container.id, valid: container.valid });
+    else containers.set(container.id, container);
   }
+  for (const value of labelledTrailers(text)) if (!containers.has(value.replace(/-/g, ''))) trailers.set(value, { id: value });
   // OCR sometimes splits a vertical stroke into an extra I. Only accept a unique
   // correction when the printed seven digits pass the ISO check digit.
   for (const match of text.matchAll(/\b([A-Z]{5})[\s|._-]*(\d{7})\b/g)) {
     const candidates = new Map();
     for (let i = 0; i < 5; i++) if (match[1][i] === 'I') {
       const candidate = parseContainer(match[1].slice(0, i) + match[1].slice(i + 1) + match[2]);
-      if (candidate?.valid) candidates.set(candidate.id, { ...candidate, corrected: true });
+      if (candidate?.valid && candidate.id[3] !== 'Z') candidates.set(candidate.id, { ...candidate, corrected: true });
     }
     if (candidates.size === 1) for (const value of candidates.values()) containers.set(value.id, value);
   }
@@ -59,9 +84,9 @@ export function detectShipmentText(input, { hasQrCode = false } = {}) {
   // Bolt seals often carry only a serial, without the word "seal". Require a long
   // letter prefix and serial, and never interpret container IDs or document IDs as seals.
   if (!weight && !invoice && !billing.category && !documentType && text.length < 500) for (const match of text.matchAll(/\b([A-Z]{3,6}\d{6,10})\b/g)) {
-    if (!containers.has(match[1]) && !parseContainer(match[1])) seals.set(match[1], { id: match[1], explicit: false });
+    if (!containers.has(match[1]) && !parseContainer(match[1]) && ![...trailers.keys()].some(id => id.replace(/-/g, '') === match[1])) seals.set(match[1], { id: match[1], explicit: false });
   }
-  return { ...billing, containers: [...containers.values()], seals: [...seals.values()], documentType, category: weight ? 'weight' : documentType ? 'shipping' : billing.category || (invoice ? 'invoices' : seals.size ? 'seals' : null) };
+  return { ...billing, containers: [...containers.values()], seals: [...seals.values()], trailers: [...trailers.values()], documentType, category: weight ? 'weight' : documentType ? 'shipping' : billing.category || (invoice ? 'invoices' : seals.size ? 'seals' : null) };
 }
 
 // Only share a unique ID within this import's source (one ZIP or selected folder).
@@ -84,11 +109,14 @@ export function resolveShipmentGroup(records, transcript = '') {
   const container = containers.size === 1 && valid.length === 1 ? valid[0] : null;
   const seal = seals.size === 1 && (trustedSeals.length === 1 || container) ? [...seals.keys()][0] : '';
   const conflict = containers.size > 1 || seals.size > 1;
+  const trailers = new Set([...chat.trailers, ...records.flatMap(record => record.evidence.trailers || [])].map(value => value.id));
+  const trailer = trailers.size === 1 ? [...trailers][0] : '';
   return records.map(record => {
     const own = record.evidence;
     return { ...record,
       container: own.containers.length === 1 ? own.containers[0] : container,
       seal: own.seals.length === 1 ? own.seals[0].id : conflict ? '' : seal,
+      trailer: own.trailers?.length === 1 ? own.trailers[0].id : trailer,
       review: conflict ? 'Multiple container or seal numbers: check this file.' : own.containers.some(value => !value.valid) ? 'Container check digit does not match.' : own.containers.some(value => value.corrected) ? 'OCR spelling corrected using check digit: verify number.' : (own.seals.some(value => !value.explicit) || (seal && ![...seals.values()][0]?.explicit)) ? 'Seal read from photo: verify the serial.' : '',
     };
   });

@@ -77,3 +77,22 @@ test('keeps blue bolt seal evidence without a serial and rejects a muted blue do
   fill(0, 0, 100, 100, [80, 130, 160]);
   assert.equal(sealRegions(pixels, width, height).length, 0);
 });
+
+test('reads trailer and truck numbers like vehicle plates', () => {
+  assert.deepEqual(detectShipmentText('WEIGH BRIDGE TICKET NO 4471 TRUCK NO: NJ AB 12345 GROSS 32000').trailers.map(value => value.id), ['NJ-AB-12345']);
+  assert.deepEqual(detectShipmentText('TRAILER # 53 1042').trailers.map(value => value.id), ['53-1042']);
+  assert.deepEqual(detectShipmentText('VEHICLE NO. DHAKA METRO TA 11 2345').trailers.map(value => value.id), ['DHAKA-METRO-TA-11-2345']);
+  assert.deepEqual(detectShipmentText('TRAILER IN GOOD CONDITION 2024').trailers, []);
+});
+
+test('an ISO chassis number is a trailer, not a container', () => {
+  const found = detectShipmentText('FLXZ 412345 0 CSQU3054383');
+  assert.deepEqual(found.containers.map(value => value.id), ['CSQU3054383']);
+  assert.deepEqual(found.trailers.map(value => value.id), ['FLXZ4123450']);
+});
+
+test('one trailer in an import is shared by its files', () => {
+  const record = (text) => ({ evidence: detectShipmentText(text) });
+  const resolved = resolveShipmentGroup([record('TRUCK NO ABC 1234 WEIGH BRIDGE TICKET'), record('CSQU3054383')]);
+  assert.deepEqual(resolved.map(value => value.trailer), ['ABC-1234', 'ABC-1234']);
+});
