@@ -1,6 +1,6 @@
 # Binary Beat — Free File Tools
 
-A searchable dashboard with **13 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows, macOS and the web**. Filter by file type, choose a tool, and process files locally.
+A searchable dashboard with **13 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows and the web**. Filter by file type, choose a tool, and process files locally.
 
 Batch resize and compress videos, or prepare shipment evidence. The video tools preserve originals; Container Load Pack saves into a chosen output folder by default, with an explicit option to replace imported originals.
 
@@ -76,13 +76,6 @@ Mail servers measure the encoded message and base64 inflates attachments by abou
 | Word, Excel, PowerPoint, OpenDocument | Embedded pictures are reduced; text and layout are untouched. |
 
 Files already within the limit are kept byte-for-byte. The container folder workflow replaces originals only when Replace files in the imported folder is explicitly selected; the default output-folder workflow preserves them. Compression is local; enabled Pro AI sends shipment previews for analysis.
-
-## macOS downloads
-
-- [Mac with Apple silicon (M1–M4)](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-arm64.dmg)
-- [Mac with Intel](https://github.com/mhridoy/video_resizer/releases/latest/download/Binary-Beat-macOS-x64.dmg)
-
-Open the DMG and drag **Binary Beat** to Applications. Builds are ad-hoc signed, not notarized (that requires a paid Apple Developer ID), so the first time right-click the app → **Open**, or use System Settings → Privacy & Security → **Open Anyway**. Requires macOS 11 or later. Mac builds don't auto-update; download new versions from the link above. Build locally on a Mac with `npm ci && npm run package:mac`.
 
 ## Windows downloads
 

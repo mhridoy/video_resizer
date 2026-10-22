@@ -133,9 +133,13 @@ async function addFiles(input) {
 }
 
 async function readLocalItems(list) {
+  const reading = $('cp-detect').checked;
+  // Fingerprints and previews only serve photo selection and the vision model; without
+  // either, decoding every photo would buy nothing, so the default import skips it.
+  const needsPixels = reading || ($('cp-standard').checked && $('cp-ai').checked);
+  if (!needsPixels) return;
   const pending = list.filter(item => ['image', 'pdf'].includes(item.kind) && !item.localRead);
   if (!pending.length || cancelled) return;
-  const reading = $('cp-detect').checked;
   let scanner, done = 0;
   const lanes = photoConcurrency();
   if (reading) setStatus(`Loading local photo reader (${lanes} at a time)…`);
@@ -148,8 +152,8 @@ async function readLocalItems(list) {
       // fingerprint all read from this one copy instead of decoding it again each.
       let source;
       try {
-        if (item.kind === 'image') source = await readPhoto(item.file);
-        if (source) {
+        if (item.kind === 'image' && (reading || $('cp-ai').checked)) source = await readPhoto(item.file);
+        if (source && $('cp-ai').checked) {
           try { item.fingerprint = await fingerprintPhoto(source); } catch { item.review = 'Photo preview unavailable.'; }
           // Keep a small copy for the classifier so it never decodes the original again.
           try { item.mlPreview = await source.previewBlob(); } catch { item.mlPreview = undefined; }
@@ -324,8 +328,9 @@ function rowFor(item) {
   folder.title = item.sendName || item.path;
   invoiceInput.hidden = !['invoices','vat','packing'].includes(item.category); invoiceInput.value = item.invoiceNumber || ''; invoiceInput.disabled = busy || folderReplaced;
   documentSelect.hidden = item.category !== 'shipping'; documentSelect.disabled = busy || folderReplaced; documentSelect.value = item.documentType || 'SHIPPING_DOC';
-  stageSelect.hidden = item.category !== 'photos'; stageSelect.disabled = busy || folderReplaced; stageSelect.value = String(item.stage ?? '');
-  includeLabel.hidden = item.category !== 'photos'; included.checked = item.included !== false; included.disabled = busy || folderReplaced;
+  const selecting = $('cp-standard').checked;
+  stageSelect.hidden = item.category !== 'photos' || !selecting; stageSelect.disabled = busy || folderReplaced; stageSelect.value = String(item.stage ?? '');
+  includeLabel.hidden = item.category !== 'photos' || !selecting; included.checked = item.included !== false; included.disabled = busy || folderReplaced;
   selectionNote.textContent = item.category === 'photos' ? item.selectionReason || '' : '';
   select.value = item.category; select.disabled = busy || folderReplaced || item.kind === 'video';
   size.textContent = formatSize(item.file.size);
@@ -711,6 +716,7 @@ $('cp-limit').addEventListener('input', () => { syncPresets(); clearPacks(); });
 $('cp-headroom').addEventListener('change', clearPacks);
 $('cp-ai').addEventListener('change', () => { analysisProblem = ''; clearPacks(); setStatus($('cp-ai').checked ? 'Automatic detection enabled with the selected engine.' : 'Local mode: loading percentages require manual selection.'); });
 $('cp-standard').addEventListener('change', () => {
+  items.forEach(rowFor);
   if ($('cp-standard').checked) applyStandard();
   else items.forEach(item => { item.included = true; delete item.manualIncluded; item.selectionReason = ''; });
   clearPacks(); render();

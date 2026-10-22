@@ -6,7 +6,8 @@ const $ = id => document.getElementById(id);
 const native = window.desktop;
 const queue = [];
 let busy = false, cancelled = false, ffmpeg, epoch = 0, ready = false, packaging = false;
-let outputDirectory, webDirectory, activeTool, progressTimer;
+let outputDirectory, webDirectory, activeTool, progressTimer, videoSource;
+const replaceOriginals = () => $('video-replace')?.checked === true;
 const pendingProgress = new Set();
 const bytes = n => n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`;
 function notice(message) { $('notice').textContent = message; }
@@ -32,6 +33,7 @@ function syncControls() {
   $('clear').disabled = busy || !queue.length;
   $('cancel').hidden = !busy || packaging;
   for (const id of ['pick-folder', 'pick-files', 'resolution', 'output', 'hardware', 'save-web-folder', 'trim-start', 'trim-end', 'mute', 'video-download-all']) $(id).disabled = busy;
+  syncVideoSource();
   document.querySelectorAll('input[name=profile], .remove-video').forEach(el => { el.disabled = busy; });
   $('video-download-all').hidden = queue.filter(f => f.url).length < 2;
   document.querySelector('#video-panel .format small').textContent = $('mute').checked ? 'H.264 · No audio' : 'H.264 + AAC';
@@ -85,7 +87,7 @@ function updateRow(file) {
   row.querySelector('.video-name').title = file.name;
   row.querySelector('.video-details').textContent = `${bytes(file.size)}${file.outputSize ? ` → ${bytes(file.outputSize)}` : ''}${file.note ? ` · ${file.note}` : ''}${file.error ? ` · ${file.error}` : ''}`;
   const status = row.querySelector('.status'); status.className = `status ${file.status}`;
-  status.textContent = file.status === 'processing' ? `${Math.round(file.progress || 0)}%` : ({ queued: 'Waiting', done: 'Finished', error: 'Failed', cancelled: 'Cancelled' })[file.status];
+  status.textContent = file.status === 'processing' ? `${Math.round(file.progress || 0)}%` : ({ queued: 'Waiting', done: 'Finished', replaced: 'Replaced', error: 'Failed', cancelled: 'Cancelled' })[file.status];
   const progress = row.querySelector('progress'); progress.hidden = file.status !== 'processing'; progress.value = file.progress || 0;
   row.querySelector('.remove-video').disabled = busy;
   if (file.url && !row.querySelector('.download')) {
@@ -105,6 +107,23 @@ function addFiles(files) {
   updateSummary();
   notice(ignored ? `${ignored} non-video files skipped.` : queue.length ? 'Ready. Choose your settings and optimize the batch.' : 'No supported video files found.');
 }
+async function replaceSourceVideos() {
+  const done = queue.filter(file => file.status === 'done' && file.outputBlob && file.original);
+  if (!done.length) { notice('Nothing finished, so the original files were left alone.'); return; }
+  if (done.length !== queue.length) { notice('Some videos did not finish, so no original was replaced. Fix those first.'); return; }
+  setBusy(true);
+  try {
+    const { replaceSourceFolder } = await import('./source-folder.js');
+    const outputs = done.map(file => ({ name: file.original.path.replace(/\.[^./]+$/, '') + '.mp4', data: file.outputBlob }));
+    const result = await replaceSourceFolder({ ...videoSource, originals: done.map(file => file.original) }, outputs, { status: notice });
+    queue.forEach(file => { file.status = 'replaced'; file.note = 'Original replaced'; updateRow(file); });
+    $('batch-status').textContent = `${result.count} originals replaced in ${videoSource.name}`;
+    notice(result.cleanupWarning || `Done. ${videoSource.name} now holds the compressed videos. Originals were removed only after every file was written.`);
+    videoSource = undefined; $('video-replace').checked = false; syncVideoSource();
+  } catch (error) { notice(`Replacement did not finish: ${error.message}`); }
+  finally { setBusy(false); updateSummary(); }
+}
+
 function finish(error) {
   setBusy(false);
   queue.filter(f => f.status === 'queued' || f.status === 'processing').forEach(f => { f.status = error ? 'error' : 'cancelled'; if (error) f.error = error; updateRow(f); });
@@ -113,6 +132,7 @@ function finish(error) {
   if (error) notice(error);
   else if (!native && !cancelled) notice(webDirectory ? 'Finished videos are saved in your selected output folder.' : 'Download your finished videos from the queue. Keep this tab open until your downloads are saved.');
   updateSummary();
+  if (!error && !cancelled && videoSource && replaceOriginals() && !failed) replaceSourceVideos();
 }
 if (native) {
   $('download-windows').hidden = true;
@@ -137,11 +157,43 @@ if (!native && 'showDirectoryPicker' in window) {
     catch (error) { if (error.name !== 'AbortError') notice(error.message); }
   };
 }
+function syncVideoSource() {
+  const note = $('video-replace-note');
+  if (!note) return;
+  const can = Boolean(native || window.showDirectoryPicker);
+  $('video-replace').disabled = busy || !can;
+  note.textContent = !can ? 'This browser cannot write back to a folder. Use Chrome or Edge, or download the results.'
+    : videoSource ? `Will replace the videos in ${videoSource.name} once every file is finished.`
+    : replaceOriginals() ? 'Choose folder to pick the folder whose videos are replaced.'
+    : 'Compressed videos are downloaded; the originals stay where they are.';
+}
+
 for (const kind of ['folder', 'files']) {
   $(`pick-${kind}`).onclick = async () => {
-    try { if (native) addFiles(await native.pickInput(kind)); else $(kind === 'folder' ? 'folder-input' : 'files-input').click(); }
-    catch (error) { notice(error.message); }
+    try {
+      if (native) { addFiles(await native.pickInput(kind)); return; }
+      // Replacing needs write access to the folder, which only the directory picker grants.
+      if (kind === 'folder' && replaceOriginals() && window.showDirectoryPicker) { await openReplaceableFolder(); return; }
+      $(kind === 'folder' ? 'folder-input' : 'files-input').click();
+    } catch (error) { if (error.name !== 'AbortError') notice(error.message); }
   };
+}
+
+async function openReplaceableFolder() {
+  if (queue.length) { notice('Clear the queue before choosing a folder to replace.'); return; }
+  const root = await window.showDirectoryPicker({ mode: 'readwrite', id: 'video-source' });
+  const { openSourceFolder } = await import('./source-folder.js');
+  const source = await openSourceFolder(root, () => {}, true);
+  // Outputs are written beside the originals, so only videos at the top level can be replaced.
+  const originals = source.originals.filter(entry => !entry.path.includes('/') && isVideo(entry.path));
+  if (!originals.length) { notice(`No videos directly inside ${source.name}. Videos in subfolders cannot be replaced.`); return; }
+  const skipped = source.originals.filter(entry => entry.path.includes('/') && isVideo(entry.path)).length;
+  videoSource = { ...source, originals };
+  const byPath = new Map(originals.map(entry => [entry.path, entry]));
+  addFiles(source.files.filter(file => byPath.has(file.relativeName.slice(source.name.length + 1))));
+  queue.forEach(file => { file.original = byPath.get(file.name.slice(source.name.length + 1)) || byPath.get(file.name); });
+  syncVideoSource();
+  notice(`${originals.length} videos from ${source.name} will be replaced after a complete batch.${skipped ? ` ${skipped} videos in subfolders were skipped.` : ''}`);
 }
 for (const id of ['folder-input', 'files-input']) $(id).onchange = event => { addFiles([...event.target.files]); event.target.value = ''; };
 $('output').onclick = async () => { try { const dir = await native.pickOutput(); if (dir) $('output-label').textContent = dir; } catch (error) { notice(error.message); } };
@@ -150,7 +202,7 @@ $('clear').onclick = () => {
   if (busy) return;
   if (!native && queue.some(f => f.url) && !confirm('Clear all videos and download links? Save your downloads first.')) return;
   queue.forEach(f => { if (f.url) URL.revokeObjectURL(f.url); }); queue.length = 0; pendingProgress.clear(); $('queue').replaceChildren();
-  native?.clear().catch(error => notice(error.message)); $('batch-status').textContent = 'Ready.'; notice(''); updateSummary();
+  native?.clear().catch(error => notice(error.message)); videoSource = undefined; syncVideoSource(); $('batch-status').textContent = 'Ready.'; notice(''); updateSummary();
 };
 const zone = $('dropzone');
 zone.ondragover = event => { event.preventDefault(); if (!busy && !native) zone.classList.add('dragging'); };
@@ -249,7 +301,11 @@ async function runBrowser(options, token) {
         try { await writable.write(output); await writable.close(); }
         catch (error) { await writable.abort().catch(() => {}); throw error; }
         file.note = 'Saved to output folder';
-      } else file.url = URL.createObjectURL(new Blob([output], { type: 'video/mp4' }));
+      } else {
+        const blob = new Blob([output], { type: 'video/mp4' });
+        if (videoSource) file.outputBlob = blob;
+        file.url = URL.createObjectURL(blob);
+      }
       file.status = 'done'; file.progress = 100;
     } catch (error) {
       file.status = cancelled ? 'cancelled' : 'error';
@@ -280,6 +336,7 @@ $('start').onclick = async () => {
   } catch (error) { finish(cancelled ? undefined : error.message); }
 };
 $('mute').addEventListener('change', syncControls);
+$('video-replace')?.addEventListener('change', () => { if (!replaceOriginals()) videoSource = undefined; syncVideoSource(); });
 $('cancel').onclick = async () => {
   cancelled = true; ++epoch;
   $('batch-status').textContent = 'Cancelling…';

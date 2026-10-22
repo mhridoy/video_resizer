@@ -1,6 +1,6 @@
 // Shrinks one file below a byte limit. Shared by the container pack and any future batch tools.
 import { replaceExtension, videoPlan, videoArgs, IMAGE_STEPS, scaledSize, extensionOf } from '../shared/fit-size.mjs';
-import { loadVideoEngine, stopVideoEngine, dropEngine, engineCores } from './video-engine.js';
+import { loadVideoEngine, stopVideoEngine, dropEngine, threaded } from './video-engine.js';
 
 const native = window.desktop;
 const DOC_STEPS = [{ maxEdge: 2400, quality: 0.8 }, { maxEdge: 1800, quality: 0.7 }, { maxEdge: 1400, quality: 0.6 }, { maxEdge: 1000, quality: 0.5 }, { maxEdge: 800, quality: 0.42 }];
@@ -117,8 +117,8 @@ async function fitDoc(item, target, job) {
 }
 
 // ---------- Video ----------
-async function browserEngine(job) {
-  const engine = await loadVideoEngine({ check: job.check, status: job.status });
+async function browserEngine(job, single = false) {
+  const engine = await loadVideoEngine({ check: job.check, status: job.status, single });
   ffmpeg = engine; ffmpegReady = true;
   return engine;
 }
@@ -131,22 +131,55 @@ async function fitVideoNative(item, target, job) {
   } finally { stop(); }
 }
 
-async function fitVideoBrowser(item, target, job) {
+// The browser already has a demuxer: reading the duration from a <video> element avoids an
+// extra full FFmpeg run per video, and the threaded core does not survive the probe run's error.
+function videoDuration(file) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file), video = document.createElement('video');
+    const done = value => { URL.revokeObjectURL(url); video.removeAttribute('src'); resolve(value); };
+    video.preload = 'metadata'; video.muted = true;
+    video.onloadedmetadata = () => done(Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0);
+    video.onerror = () => done(0);
+    video.src = url;
+  });
+}
+
+async function encodeVideoInBrowser(item, target, job, single) {
   if (item.file.size > MAX_WEB_VIDEO) throw Error('Over the 1 GB browser limit. Use the desktop app for this video.');
-  const engine = await browserEngine(job);
+  // Read the length before the engine starts; the browser demuxes formats it can play.
+  let duration = await videoDuration(item.file);
+  const bytes = new Uint8Array(await item.file.arrayBuffer());
   const inputName = `input.${extensionOf(item.path) || 'mp4'}`;
-  let log = '', duration = 0, attempt = 0;
+  let log = '', attempt = 0;
   const logger = ({ message }) => {
     log = (log + '\n' + message).slice(-4000);
     const match = message.match(/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/);
-    if (match) duration = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+    if (match && !duration) duration = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
   };
   const listener = ({ time }) => { if (duration && Number.isFinite(time)) job.progress(Math.min(99, (attempt + time / 1e6 / duration) / (attempt + 1) * 100)); };
-  engine.on('log', logger); engine.on('progress', listener);
-  try {
-    await engine.writeFile(inputName, new Uint8Array(await item.file.arrayBuffer()));
+  let engine;
+  const start = async () => {
+    engine = await browserEngine(job, single);
+    engine.on('log', logger); engine.on('progress', listener);
+    // writeFile transfers the buffer to the worker, so each engine gets its own copy.
+    await engine.writeFile(inputName, bytes.slice());
     job.check();
-    await engine.exec(['-hide_banner', '-i', inputName]); // Reads the duration; "no output" is expected.
+  };
+  const discard = () => {
+    engine.off('log', logger); engine.off('progress', listener);
+    if (ffmpeg === engine) { dropEngine(engine); ffmpeg = undefined; ffmpegReady = false; }
+  };
+  try {
+    await start();
+    if (!duration) {
+      // A container the browser cannot play: ask FFmpeg instead. That run ends in an error
+      // because no output was asked for, which the threaded core does not survive, so the
+      // engine is replaced before the real encode.
+      await engine.exec(['-hide_banner', '-i', inputName]);
+      discard();
+      await start();
+      if (!duration) throw Error('Could not read how long this video is. Convert it to MP4 and try again.');
+    }
     for (; attempt < 4; attempt++) {
       job.check();
       const plan = videoPlan(duration, target, attempt, { mute: job.mute });
@@ -160,11 +193,25 @@ async function fitVideoBrowser(item, target, job) {
     throw Error('Could not get this video under the limit.');
   } catch (error) {
     // A failed WASM instance can be left in a bad state; start fresh for the next file.
-    if (ffmpeg === engine) { dropEngine(engine); ffmpeg = undefined; ffmpegReady = false; }
+    if (engine) discard();
     throw error;
   } finally {
-    engine.off('log', logger); engine.off('progress', listener);
-    if (ffmpeg === engine && ffmpegReady) { await engine.deleteFile(inputName).catch(() => {}); await engine.deleteFile('output.mp4').catch(() => {}); }
+    if (engine) {
+      engine.off('log', logger); engine.off('progress', listener);
+      if (ffmpeg === engine && ffmpegReady) { await engine.deleteFile(inputName).catch(() => {}); await engine.deleteFile('output.mp4').catch(() => {}); }
+    }
+  }
+}
+
+async function fitVideoBrowser(item, target, job) {
+  try { return await encodeVideoInBrowser(item, target, job, false); }
+  catch (error) {
+    job.check();
+    if (!threaded()) throw error;
+    // Every core at once is far faster, but a big frame at a high bitrate can exhaust the
+    // threaded build's memory. One core always has room, so this video takes the slow road.
+    job.status(`${item.path}: retrying on a single core…`);
+    return encodeVideoInBrowser(item, target, job, true);
   }
 }
 

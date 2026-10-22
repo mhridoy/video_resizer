@@ -6,7 +6,7 @@
 // headers that grant it are set for the site; where they are missing — an older browser, or
 // the page embedded somewhere else — this falls back to the single-threaded build.
 
-let engine, ready = false, controller;
+let engine, ready = false, controller, loadedSingle = false;
 
 export const threaded = () => globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer === 'function';
 export const engineCores = () => threaded() ? Math.max(2, Math.min(8, navigator.hardwareConcurrency || 4)) : 1;
@@ -25,9 +25,14 @@ export function dropEngine(candidate) {
   engine.terminate(); engine = undefined; ready = false;
 }
 
-export async function loadVideoEngine({ check = () => {}, status = () => {} } = {}) {
-  if (engine && ready) return engine;
-  const multi = threaded();
+/**
+ * `single` forces the single-threaded build. The threaded one runs out of WebAssembly memory
+ * on a large frame at a high bitrate, so a failed encode is retried on the smaller engine.
+ */
+export async function loadVideoEngine({ check = () => {}, status = () => {}, single = false } = {}) {
+  const multi = !single && threaded();
+  if (engine && ready && loadedSingle === !multi) return engine;
+  if (engine) stopVideoEngine();
   status(multi
     ? `Loading the video engine (about 32 MB, using ${engineCores()} cores). This happens once per session.`
     : 'Loading the video engine (about 32 MB). This happens once per session.');
@@ -53,7 +58,7 @@ export async function loadVideoEngine({ check = () => {}, status = () => {} } = 
       ...(multi ? { workerURL: new URL('ffmpeg-core.worker.js', base).href } : {}),
     });
     check();
-    ready = true;
+    ready = true; loadedSingle = !multi;
     return loading;
   } catch (error) {
     abort.abort(); loading.terminate();
