@@ -1,7 +1,7 @@
 // Shrinks one file below a byte limit. Shared by the container pack and any future batch tools.
 import { mp4Duration } from '../shared/mp4-duration.mjs';
 import { replaceExtension, videoPlan, videoArgs, IMAGE_STEPS, scaledSize, extensionOf } from '../shared/fit-size.mjs';
-import { loadVideoEngine, stopVideoEngine, dropEngine, threaded } from './video-engine.js';
+import { loadVideoEngine, stopVideoEngine, dropEngine } from './video-engine.js';
 
 const native = window.desktop;
 const DOC_STEPS = [{ maxEdge: 2400, quality: 0.8 }, { maxEdge: 1800, quality: 0.7 }, { maxEdge: 1400, quality: 0.6 }, { maxEdge: 1000, quality: 0.5 }, { maxEdge: 800, quality: 0.42 }];
@@ -207,16 +207,10 @@ async function encodeVideoInBrowser(item, target, job, single) {
   }
 }
 
+// The multi-core engine fails on Container Pack videos (and in some browsers stalls at 0%
+// instead of failing), so the pack always uses the single-core engine, which finishes.
 async function fitVideoBrowser(item, target, job) {
-  try { return await encodeVideoInBrowser(item, target, job, false); }
-  catch (error) {
-    job.check();
-    if (!threaded()) throw error;
-    // Every core at once is far faster, but a big frame at a high bitrate can exhaust the
-    // threaded build's memory. One core always has room, so this video takes the slow road.
-    job.status(`${item.path}: retrying on a single core…`);
-    return encodeVideoInBrowser(item, target, job, true);
-  }
+  return encodeVideoInBrowser(item, target, job, true);
 }
 
 /**
