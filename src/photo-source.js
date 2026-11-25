@@ -20,6 +20,23 @@ function scaled(source, edge, enlarge = 1) {
   return { canvas, context };
 }
 
+function inkOnly(context, width, height, ink) {
+  const image = context.getImageData(0, 0, width, height), data = image.data;
+  const values = new Float32Array(width * height);
+  for (let i = 0; i < values.length; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+    values[i] = ink === 'cyan' ? r - (g + b) / 2 : -(Math.max(r, g, b) - Math.min(r, g, b));
+  }
+  const sorted = Float32Array.from(values).sort();
+  const low = sorted[Math.floor(sorted.length * 0.05)], high = sorted[Math.floor(sorted.length * 0.95)];
+  const range = Math.max(1, high - low);
+  for (let i = 0; i < values.length; i++) {
+    const shade = 255 - Math.max(0, Math.min(1, (values[i] - low) / range)) * 255;
+    data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = shade; data[i * 4 + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+}
+
 export async function readPhoto(file) {
   let bitmap;
   try { bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
@@ -36,7 +53,9 @@ export async function readPhoto(file) {
       textCanvas: () => (text ||= scaled(work.canvas, Math.max(TEXT_EDGE, Math.min(MIN_TEXT_EDGE, Math.max(work.canvas.width, work.canvas.height) * MAX_ENLARGE)), MAX_ENLARGE).canvas),
       // A region given as fractions of the photo, padded, enlarged to `edge` and turned a
       // quarter clockwise (1) or anticlockwise (-1): seal serials run along the seal's body.
-      crop({ x, y, w, h }, { pad = 0.3, edge = 900, turn = 0 } = {}) {
+      // `ink`: 'cyan' keeps grey engraving on cyan plastic and drops the plastic; 'grey' keeps
+      // whatever is least saturated. Both give dark text on white, which OCR reads far better.
+      crop({ x, y, w, h }, { pad = 0.3, edge = 900, turn = 0, ink = '' } = {}) {
         const W = work.canvas.width, H = work.canvas.height;
         const left = Math.max(0, (x - w * pad) * W), top = Math.max(0, (y - h * pad) * H);
         const right = Math.min(W, (x + w * (1 + pad)) * W), bottom = Math.min(H, (y + h * (1 + pad)) * H);
@@ -50,6 +69,7 @@ export async function readPhoto(file) {
         context.imageSmoothingEnabled = true; context.imageSmoothingQuality = 'high';
         context.translate(canvas.width / 2, canvas.height / 2); context.rotate(turn * Math.PI / 2);
         context.drawImage(work.canvas, left, top, sw, sh, -dw / 2, -dh / 2, dw, dh);
+        if (ink) inkOnly(context, canvas.width, canvas.height, ink);
         return canvas;
       },
       viewAt(edge) { return scaled(work.canvas, edge); },

@@ -20,7 +20,10 @@ export function sealRegions(data, width, height, colors = ['cyan', 'yellow']) {
       }
     }
     const w = maxX - minX + 1, h = maxY - minY + 1;
-    if (queue.length > mask.length * .015 && w * h < mask.length * .18 && Math.max(w / h, h / w) > (colors.includes('yellow') ? 1 : 1.25)) regions.push({ x: minX / width, y: minY / height, w: w / width, h: h / height, area: queue.length });
+    // A seal fills most of its box, is no more than five times as long as wide, and covers less
+    // than half the photo. A door's edge (a thin strip) or scattered paint does not.
+    const box = w * h, aspect = Math.max(w / h, h / w);
+    if (queue.length > mask.length * .015 && box < mask.length * .45 && queue.length / box > .4 && aspect <= 5) regions.push({ x: minX / width, y: minY / height, w: w / width, h: h / height, area: queue.length });
   }
   return regions.sort((a, b) => b.area - a.area).slice(0, 3);
 }

@@ -1,5 +1,5 @@
 import { invoiceEvidence } from './invoice-documents.mjs';
-import { parseContainer, safeIdentifier } from './container.mjs';
+import { parseContainer, safeIdentifier, checkDigit } from './container.mjs';
 
 // A seal is written many ways: "SEAL NO 0098812", "SEAL NO ML 0098812", "SEAL: ML-US 1234567".
 // Take the words after the label while they still read as one number: a short owner prefix,
@@ -45,20 +45,48 @@ function labelledTrailers(text) {
 
 // Words printed on container doors and documents next to numbers; never a seal prefix.
 const NOT_SEAL = new Set(['MAX', 'GROSS', 'TARE', 'NET', 'KG', 'KGS', 'LB', 'LBS', 'CAP', 'CUM', 'CUFT', 'PAYLOAD', 'TEL', 'MOB', 'FAX', 'PO', 'BOX', 'INV', 'NO', 'DATE', 'TIME', 'VAT', 'CR']);
+// Seal makers' prefixes seen on this team's loads. A one-letter OCR slip in a known prefix
+// ("SUAMM" for SDAMM) is put right; anything else is kept as read.
+export const KNOWN_SEAL_PREFIXES = ['SADMM', 'SDAMM', 'AKS', 'ML', 'B'];
+const DIGIT_LOOKALIKE = { O: '0', Q: '0', D: '0', U: '0', I: '1', L: '1', J: '1', Z: '2', S: '5', B: '8', A: '4', G: '6', T: '7' };
+const oneSlip = (a, b) => a.length === b.length && [...a].filter((char, i) => char !== b[i]).length <= 1;
+
+/** Normalised serials in text read off a seal close-up, one entry per reading (for voting). */
+export function sealCandidates(input, known = KNOWN_SEAL_PREFIXES) {
+  const found = [];
+  // "AKS 48936": a short prefix printed apart from its serial belongs to it.
+  const text = String(input || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').replace(/\b([A-Z]{1,5}) (?=\d{4})/g, '$1');
+  for (const token of text.split(' ')) {
+    if (token.length < 6 || token.length > 15) continue;
+    for (let cut = Math.min(5, token.length - 5); cut >= 1; cut--) {
+      const prefix = token.slice(0, cut);
+      if (!/^[A-Z]+$/.test(prefix)) continue;
+      const digits = [...token.slice(cut)].map(char => DIGIT_LOOKALIKE[char] ?? char).join('');
+      // Mostly real digits: "GLOBAL" must not become G-10841.
+      if (!/^\d{5,10}$/.test(digits) || (token.slice(cut).match(/\d/g) || []).length < digits.length * 0.6) continue;
+      if (NOT_SEAL.has(prefix) || parseContainer(prefix + digits)) break;
+      const fixed = known.find(value => value === prefix) || known.find(value => value.length >= 3 && oneSlip(value, prefix)) || prefix;
+      found.push(fixed + digits);
+      break;
+    }
+  }
+  return found;
+}
+
 /**
  * Serials read off a close-up of a seal ("AKS 48936", "ML-0098812"). Only for text read from a
  * cropped seal region, where a short letter prefix and a serial can mean nothing else.
+ * Returns every distinct reading with its vote count; the import settles the serial across all
+ * of a container's seal photos.
  */
-export function sealsFromCloseUp(input) {
-  const text = String(input || '').toUpperCase();
-  const found = new Map();
-  for (const match of text.matchAll(/(?:^|[^A-Z0-9])([A-Z]{2,5})[\s\-_.:]{0,2}(\d{5,10})(?![0-9])/g)) {
-    if (NOT_SEAL.has(match[1]) || parseContainer(match[1] + match[2])) continue;
-    const id = match[1] + match[2];
-    found.set(id, { id, explicit: false });
-  }
-  return [...found.values()];
+export function sealsFromCloseUp(input, known = KNOWN_SEAL_PREFIXES) {
+  const votes = new Map();
+  for (const id of sealCandidates(input, known)) votes.set(id, (votes.get(id) || 0) + 1);
+  return [...votes].sort((a, b) => b[1] - a[1]).map(([id, count]) => ({ id, explicit: false, votes: count, known: known.includes(id.match(/^[A-Z]+/)?.[0]) }));
 }
+
+/** Whether a photo's readings settle its serial on their own: two readings agree and lead. */
+export const confirmedSeal = readings => readings.length > 0 && readings[0].votes >= 2 && !(readings[1]?.votes >= readings[0].votes);
 
 // Exported chat and OCR text are data only. Nothing in them is executed.
 export function detectShipmentText(input, { hasQrCode = false } = {}) {
@@ -78,6 +106,30 @@ export function detectShipmentText(input, { hasQrCode = false } = {}) {
     const candidate = parseContainer(`${match[1]}U${match[2]}${match[3]}${match[4]}`);
     if (candidate?.valid && !containers.has(candidate.id)) containers.set(candidate.id, { ...candidate, corrected: true });
   }
+  // The check digit is printed in a box on the door, and the box's edges make OCR misread it
+  // ("TGBU 248128 7"), drop it, or add a digit ("ESDU70743840"). The other ten characters
+  // decide the check digit, so recover it, but mark the result for confirmation.
+  for (const match of text.matchAll(/\b([A-Z]{3}[UJRYVO])[\s._|-]*((?:\d[\s._|-]?){6,8})(?![\d])/g)) {
+    const owner = match[1].slice(0, 3) + 'U'.repeat(/[YVO]/.test(match[1][3]) ? 1 : 0) + (/[YVO]/.test(match[1][3]) ? '' : match[1][3]);
+    const digits = match[2].replace(/\D/g, '');
+    const candidates = new Map();
+    if (digits.length === 7 && parseContainer(owner + digits)?.valid) continue; // read correctly; handled above
+    // Seven digits run together are printed that way (a document): a wrong check digit there is
+    // a wrong number, not a misread box, so it is left for review.
+    if (digits.length === 7 && !/\d[\s._|-]+\d$/.test(match[2].trim())) continue;
+    const serials = digits.length === 6 ? [digits] : digits.length === 7 ? [digits.slice(0, 6)]
+      : [...new Set([...digits].map((_, i) => (digits.slice(0, i) + digits.slice(i + 1)).slice(0, 7)))].filter(value => parseContainer(owner + value)?.valid).map(value => value.slice(0, 6));
+    for (const serial of serials) {
+      const check = checkDigit(owner + serial);
+      if (check >= 0) candidates.set(owner + serial + check, { id: owner + serial + check, valid: true, corrected: true });
+    }
+    if (candidates.size !== 1) continue;
+    const [value] = candidates.values();
+    if (value.id[3] === 'Z') continue;
+    // The misread original is the same box; keep only the recovered number.
+    if (digits.length === 7) containers.delete(match[1] + digits);
+    if (!containers.has(value.id)) containers.set(value.id, value);
+  }
   // OCR sometimes splits a vertical stroke into an extra I. Only accept a unique
   // correction when the printed seven digits pass the ISO check digit.
   for (const match of text.matchAll(/\b([A-Z]{5})[\s|._-]*(\d{7})\b/g)) {
@@ -89,7 +141,9 @@ export function detectShipmentText(input, { hasQrCode = false } = {}) {
     if (candidates.size === 1) for (const value of candidates.values()) containers.set(value.id, value);
   }
   // Container doors also say GROSS / TARE / NET. Those words alone are not a ticket.
-  const weight = /\b(?:WEIGH\s*BRIDGE|WEIGHING|WEIGHT\s*(?:TICKET|SLIP)|TICKET\s*(?:ID|NO)|[12]\s*(?:ST|ND)\s+WEIGHT)\b/.test(text)
+  // The yard's own ticket forms: "SCRAP EVALUATION", "VECHILE NO." (sic), "DRIVER'S SIGN".
+  const ticketForm = [/SCRAP\s*EVALUATION/, /VECHILE\s*NO/, /DRIVER'?S\s*SIGN/, /FOREMAN\s*SIGN/, /\b[12]\s*(?:ST|ND)\s*WE/, /NET\s*WE/].filter(pattern => pattern.test(text)).length >= 2;
+  const weight = ticketForm || /\b(?:WEIGH\s*BRIDGE|WEIGHING|WEIGHT\s*(?:TICKET|SLIP)|TICKET\s*(?:ID|NO)|[12]\s*(?:ST|ND)\s+WEIGHT)\b/.test(text)
     || (/\bNET\s+WEIGHT\b/.test(text) && /\b(?:DATE|CUSTOMER|OPERATOR)\b/.test(text) && !/\b(?:INVOICE|PROFORMA|PACKING\s+LIST)\b/.test(text));
   const billing = invoiceEvidence(input, hasQrCode);
   const invoice = !weight && /\b(?:INVOICE|PROFORMA)\b/.test(text);
@@ -122,7 +176,7 @@ export function resolveShipmentGroup(records, transcript = '') {
   const seals = new Map();
   const addSeal = value => {
     const old = seals.get(value.id) || { ...value, count: 0 };
-    seals.set(value.id, { ...old, count: old.count + 1, explicit: old.explicit || value.explicit });
+    seals.set(value.id, { ...old, count: old.count + (value.votes || 1), explicit: old.explicit || value.explicit, known: old.known || value.known });
   };
   chat.seals.filter(value => value.explicit).forEach(addSeal);
   for (const record of records) {
@@ -132,22 +186,32 @@ export function resolveShipmentGroup(records, transcript = '') {
   // One photo read TLLU2949292, another TLLU2949297: when a single number passes the check
   // digit, failing readings that differ from it in a character or two are the same box misread.
   const near = (a, b) => a.length === b.length && [...a].filter((char, i) => char !== b[i]).length <= 2;
-  const checked = [...containers.values()].filter(value => value.valid);
-  if (checked.length === 1) for (const value of [...containers.values()]) if (!value.valid && near(value.id, checked[0].id)) containers.delete(value.id);
+  // A number printed in a document or read cleanly outranks one whose check digit was recovered.
+  const strong = [...containers.values()].filter(value => value.valid && !value.corrected);
+  const checked = strong.length ? strong : [...containers.values()].filter(value => value.valid);
+  const anchor = new Set(checked.map(value => value.id)).size === 1 ? checked[0] : null;
+  if (anchor) for (const value of [...containers.values()]) if (value.id !== anchor.id && near(value.id, anchor.id)) containers.delete(value.id);
   const valid = [...containers.values()].filter(value => value.valid);
-  const trustedSeals = [...seals.values()].filter(value => value.explicit || value.count >= 2);
   const container = containers.size === 1 && valid.length === 1 ? valid[0] : null;
-  const seal = seals.size === 1 && (trustedSeals.length === 1 || container) ? [...seals.keys()][0] : '';
-  const conflict = containers.size > 1 || seals.size > 1;
+  // Seal photos are read many times over; the readings vote. Readings a few characters away
+  // from the leader are the same engraving misread, not a second seal.
+  const score = value => value.count + (value.explicit ? 2 : 0);
+  const ranked = [...seals.values()].sort((a, b) => score(b) - score(a) || a.id.localeCompare(b.id));
+  const sameSeal = (a, b) => a.length === b.length && [...a].filter((char, i) => char !== b[i]).length <= 3;
+  const top = ranked[0];
+  const rival = top && ranked.slice(1).find(value => !sameSeal(value.id, top.id) && score(value) >= 2);
+  const tied = top && ranked[1] && score(ranked[1]) === score(top);
+  const seal = top && !rival && !tied && (top.explicit || score(top) >= 2 || (ranked.length === 1 && (top.known || container))) ? top.id : '';
+  const conflict = containers.size > 1 || Boolean(rival && score(top) >= 2);
   const trailers = new Set([...chat.trailers, ...records.flatMap(record => record.evidence.trailers || [])].map(value => value.id));
   const trailer = trailers.size === 1 ? [...trailers][0] : '';
   return records.map(record => {
     const own = record.evidence;
     return { ...record,
-      container: own.containers.length === 1 && !(container && !own.containers[0].valid && near(own.containers[0].id, container.id)) ? own.containers[0] : container,
-      seal: own.seals.length === 1 ? own.seals[0].id : conflict ? '' : seal,
+      container: own.containers.length === 1 && !(container && own.containers[0].id !== container.id && near(own.containers[0].id, container.id)) ? own.containers[0] : container,
+      seal: own.seals.length === 1 && own.seals[0].explicit ? own.seals[0].id : conflict ? '' : seal,
       trailer: own.trailers?.length === 1 ? own.trailers[0].id : trailer,
-      review: conflict ? 'Multiple container or seal numbers: check this file.' : own.containers.some(value => !value.valid && !(container && near(value.id, container.id))) ? 'Container check digit does not match.' : own.containers.some(value => value.corrected) ? 'OCR spelling corrected using check digit: verify number.' : (own.seals.some(value => !value.explicit) || (seal && ![...seals.values()][0]?.explicit)) ? 'Seal read from photo: verify the serial.' : '',
+      review: conflict ? 'Multiple container or seal numbers: check this file.' : own.containers.some(value => !value.valid && !(container && near(value.id, container.id))) ? 'Container check digit does not match.' : own.containers.some(value => value.corrected) ? 'OCR spelling corrected using check digit: verify number.' : (seal && !top.explicit) ? 'Seal read from photo: verify the serial.' : '',
     };
   });
 }

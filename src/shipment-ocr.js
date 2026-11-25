@@ -1,6 +1,6 @@
 import { hasShipmentQr } from './shipment-qr.js';
 import { createWorker } from 'tesseract.js';
-import { detectShipmentText, sealsFromCloseUp } from '../shared/shipment-detection.mjs';
+import { detectShipmentText, sealsFromCloseUp, confirmedSeal } from '../shared/shipment-detection.mjs';
 import { sealRegions } from '../shared/photo-regions.mjs';
 import { readPhoto } from './photo-source.js';
 import { photoConcurrency } from '../shared/parallel.mjs';
@@ -81,20 +81,23 @@ export async function createShipmentScanner(size = photoConcurrency()) {
         const regions = sealRegions(pixels, small.width, small.height);
         small.width = small.height = 1;
         if (!regions.length) return { ...found, text: data.text };
-        // Tight crops read best; two sizes and three turns, stopping at the first serial.
+        // Tight crops read best. Each seal is read turned three ways and drawn three ways (as
+        // photographed, engraving on cyan, least-saturated ink); readings then vote.
         let closeUp = '';
         search: for (const region of regions.slice(0, 2)) {
-          for (const edge of [600, 900]) for (const turn of [0, 1, -1]) {
-            const crop = source.crop(region, { pad: 0.04, edge, turn });
+          for (const turn of [0, 1, -1]) for (const ink of ['', 'cyan', 'grey']) {
+            const crop = source.crop(region, { pad: 0.04, edge: 600, turn, ink });
             try { closeUp += '\n' + (await read(crop)).text; } finally { crop.width = crop.height = 1; }
             check();
-            if (sealsFromCloseUp(closeUp).length) break search;
+            if (confirmedSeal(sealsFromCloseUp(closeUp))) break search;
           }
         }
         const seals = sealsFromCloseUp(closeUp);
         // Part of a serial ("8936") lets the import match this photo to a seal read elsewhere.
         const sealDigits = [...new Set(closeUp.match(/\d{4,10}/g) || [])];
-        if (!seals.length && !cyan) return { ...found, text: `${data.text}\n${closeUp}`, sealDigits };
+        // A blue door (MAX GROSS, TARE, PAYLOAD painted on it) is not a seal unless a serial was read.
+        const door = /\b(?:TARE|PAYLOAD|GROSS|CU\.?\s*CAP)\b/i.test(data.text);
+        if (!seals.length && (!cyan || door)) return { ...found, text: `${data.text}\n${closeUp}`, sealDigits };
         return { ...found, text: `${data.text}\n${closeUp}`, seals: [...found.seals, ...seals], category: 'seals', possibleSeal: !seals.length };
       } finally {
         if (worker) give(worker);
