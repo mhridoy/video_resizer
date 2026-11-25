@@ -14,7 +14,7 @@
   <header class="site-header"><div class="header-inner">
     <a class="brand" href="./" data-home aria-label="Binary Beat home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="brand-name">Binary Beat</span></a>
     <nav class="header-nav" aria-label="Main navigation"><button class="nav-link active" data-category="all">All tools</button><button class="nav-link" data-category="logistics">Container pack</button><button class="nav-link" data-category="video">Video</button><button class="nav-link" data-category="image">Image</button><button class="nav-link" data-category="pdf">PDF</button></nav>
-    <div class="header-actions"><span class="local-badge" id="mode"><span></span>Processed on this device</span><a id="download-windows" class="btn btn-secondary btn-sm desktop-link" href="https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe"><span data-icon="monitor"></span><span>Desktop app</span></a></div>
+    <div class="header-actions"><span class="local-badge" id="mode"><span></span>Processed on this device</span><a id="download-windows" class="btn btn-secondary btn-sm desktop-link" href="/api/download?file=windows"><span data-icon="monitor"></span><span>Desktop app</span></a></div>
   </div></header>
   <main id="main-content" class="app">
     <section id="home-panel">
@@ -27,7 +27,7 @@
         <div class="directory-label"><h2 id="directory-title">All tools</h2><span id="tool-match-count">13 tools</span></div>
         <div id="tool-grid" class="tool-grid"></div><div id="no-tools" class="no-tools" hidden><span data-icon="search"></span><h3>No matching tools</h3><p>Try “compress”, “invoice” or “PDF”.</p><button class="btn btn-secondary" id="reset-search">Show all tools</button></div>
       </section>
-      <section class="desktop-banner"><div class="desktop-banner-icon" data-icon="monitor"></div><div class="desktop-banner-copy"><span class="eyebrow">Windows app</span><h2>Native speed for the biggest batches</h2><p>Hardware video encoding and no browser memory limit. On Mac and everywhere else, the web app does the same work in the browser.</p></div><div class="desktop-downloads"><a class="btn btn-primary" href="https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe"><span data-icon="arrow-down"></span>Download for Windows</a></div></section>
+      <section class="desktop-banner"><div class="desktop-banner-icon" data-icon="monitor"></div><div class="desktop-banner-copy"><span class="eyebrow">Windows and Mac apps</span><h2>Native speed for the biggest batches</h2><p>Hardware video encoding and no browser memory limit. Everywhere else, the web app does the same work in the browser.</p></div><div class="desktop-downloads"><a class="btn btn-primary" data-os="windows" href="/api/download?file=windows"><span data-icon="arrow-down"></span>Download for Windows</a><a class="btn btn-primary" data-os="mac" href="/api/download?file=mac-arm64"><span data-icon="arrow-down"></span>Mac · Apple silicon (M1–M4)</a><a class="btn btn-secondary" data-os="mac" href="/api/download?file=mac-x64"><span data-icon="arrow-down"></span>Mac · Intel</a></div></section>
     </section>
     <section id="workspace-panel" hidden>
       <div class="workspace-top"><button class="back-button" data-home><span data-icon="arrow-left"></span>All tools</button><span class="workspace-local"><span data-icon="shield"></span>Files stay on this device</span></div>

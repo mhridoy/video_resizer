@@ -80,25 +80,18 @@ Mail servers measure the encoded message and base64 inflates attachments by abou
 
 Files already within the limit are kept byte-for-byte. The container folder workflow replaces originals only when Replace files in the imported folder is explicitly selected; the default output-folder workflow preserves them. Compression is local; enabled Pro AI sends shipment previews for analysis.
 
-## Windows downloads
+## Desktop downloads (Windows and Mac)
 
-**Direct downloads (no GitHub login needed):**
+Download from the website (the repository is private, so GitHub's own release links do not work for visitors):
 
-- [Windows installer EXE](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe)
-- [Windows portable EXE](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Portable.exe)
+- Windows installer: https://video-resizer-eta.vercel.app/api/download?file=windows
+- Windows portable: https://video-resizer-eta.vercel.app/api/download?file=windows-portable
+- Mac, Apple silicon (M1–M4): https://video-resizer-eta.vercel.app/api/download?file=mac-arm64
+- Mac, Intel: https://video-resizer-eta.vercel.app/api/download?file=mac-x64
 
-These links become available after the first successful build and release. Every successful main-branch build publishes a release with these stable asset names.
+`/api/download` asks GitHub for a short-lived signed link to the newest release file and redirects to it. **One-time setup:** create a fine-grained GitHub token with read-only *Contents* access to this repository and add it in Vercel as the environment variable `GITHUB_RELEASES_TOKEN`, then redeploy.
 
-The website downloads the Windows installer from GitHub Releases. The Windows workflow builds both an installable Setup EXE and a portable EXE.
-
-For individual build artifacts, open [Build Windows installer and web](https://github.com/mhridoy/video_resizer/actions/workflows/build.yml), choose the latest successful run, and download an artifact at the bottom:
-
-| Artifact | Contents |
-| --- | --- |
-| Video-Resizer-Windows-x64 | Windows installer and portable EXE |
-| Video-Resizer-Web | Static website build |
-
-GitHub requires sign-in to download workflow artifacts, which are retained for 30 days. Run the workflow again to regenerate them. These initial builds are **unsigned**; Windows may display an unknown-publisher warning. Publishing trusted installers requires your signing certificates. The bundled FFmpeg needs no separate installation.
+Every successful main-branch build publishes a release with these stable file names. The builds are **unsigned**. Windows may show an unknown-publisher warning. On Mac the app is ad-hoc signed: the first time, right-click it and choose **Open** (or System Settings → Privacy & Security → Open Anyway). Automatic updates exist only for the Windows Setup EXE; Mac users download new versions from the website.
 
 ## Speed and quality
 

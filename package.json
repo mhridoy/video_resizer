@@ -11,7 +11,8 @@
     "build": "node scripts/copy-ml.mjs && node scripts/copy-core.mjs && node scripts/copy-ocr.mjs && node scripts/copy-desktop.mjs && vite build",
     "desktop": "npm run build && electron .",
     "package": "npm run build && electron-builder --win --x64 --publish never",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "package:mac": "npm run build && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@ffmpeg/core": "0.12.10",
@@ -76,6 +77,22 @@
         "owner": "mhridoy",
         "repo": "video_resizer"
       }
-    ]
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg"
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "artifactName": "Video-Resizer-Mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "Video-Resizer-Mac-${arch}.${ext}"
+    },
+    "afterPack": "scripts/mac-adhoc-sign.cjs"
   }
 }

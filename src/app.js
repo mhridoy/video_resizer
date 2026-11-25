@@ -69,8 +69,14 @@ document.querySelectorAll('[data-open-tool]').forEach(el => el.addEventListener(
 $('reset-search').onclick = () => { category = 'all'; $('tool-search').value = ''; renderTools(); };
 document.addEventListener('keydown', e => { if (e.key === '/' && !$('home-panel').hidden && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { e.preventDefault(); $('tool-search').focus(); } });
 window.addEventListener('hashchange', () => { if (!window.desktop) navigate(location.hash.slice(1), { address: false }); });
-// The desktop app is Windows only; every other platform uses the web app.
-if (!window.desktop && !/Win/i.test(navigator.platform || navigator.userAgent)) $('download-windows').hidden = true;
+// Desktop apps exist for Windows and Mac; offer the one for this computer first.
+const os = /Mac/i.test(navigator.platform || navigator.userAgent) ? 'mac' : /Win/i.test(navigator.platform || navigator.userAgent) ? 'windows' : '';
+if (!window.desktop) {
+  if (os === 'mac') $('download-windows').href = '/api/download?file=mac-arm64';
+  if (!os) $('download-windows').hidden = true;
+  // Show only this computer's downloads; on other systems show all of them.
+  if (os) document.querySelectorAll('.desktop-downloads [data-os]').forEach(link => { link.hidden = link.dataset.os !== os; });
+}
 if (window.desktop) { $('download-windows').hidden = true; $('mode').textContent = 'Desktop edition'; document.querySelector('.desktop-banner').hidden = true; }
 document.querySelector('.skip-link').addEventListener('click', e => { e.preventDefault(); $('main-content').setAttribute('tabindex', '-1'); $('main-content').focus(); });
 hydrateIcons(); renderTools();
