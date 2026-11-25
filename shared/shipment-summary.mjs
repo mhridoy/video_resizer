@@ -23,6 +23,7 @@ const NOT_LOAD = /(?:\b1\s*ST|\b2\s*ND|\bFIRST|\bSECOND|\bMAX\.?|\bTARE|\bPAYLOA
 
 function weights(text) {
   const found = [];
+  let handwritten = false;
   for (const match of text.matchAll(WEIGHT)) {
     if (NOT_LOAD.test(text.slice(Math.max(0, match.index - 14), match.index + match[0].indexOf(match[2])))) continue;
     const unit = match[3];
@@ -33,12 +34,13 @@ function weights(text) {
     if (/^K/.test(unit) && /NET/.test(match[1] || '')) {
       const after = text.slice(match.index + match[0].length, match.index + match[0].length + 160);
       const written = [...after.matchAll(/=\s*(\d{4,6})(?!\d)/g)].map(m => Number(m[1])).find(kg => kg < value && kg > value * 0.95);
-      if (written) value = written;
+      if (written) { value = written; handwritten = true; }
     }
     const mt = /^K/.test(unit) ? value / 1000 : value;
     if (mt < 0.05 || mt > 60) continue; // not a container load
     const label = (match[1] || '').replace(/[\s.]/g, '');
-    found.push({ mt, basis: /^(NET|NW)$/.test(label) ? 'net' : /^(GROSS|GW)$/.test(label) ? 'gross' : '' });
+    found.push({ mt, basis: /^(NET|NW)$/.test(label) ? 'net' : /^(GROSS|GW)$/.test(label) ? 'gross' : '', handwritten });
+    handwritten = false;
   }
   return found;
 }
@@ -79,7 +81,7 @@ export function extractShipmentFields(input) {
   }
   const all = weights(text);
   const pick = all.find(value => value.basis === 'net') || all.find(value => value.basis === 'gross') || all[0];
-  if (pick) { fields.weightMt = Math.round(pick.mt * 1000) / 1000; fields.weightBasis = pick.basis; }
+  if (pick) { fields.weightMt = Math.round(pick.mt * 1000) / 1000; fields.weightBasis = pick.basis; if (pick.handwritten) fields.weightHandwritten = true; }
   return fields;
 }
 
