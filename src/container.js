@@ -794,11 +794,23 @@ function renderChecklist() {
     if (!group.some(item => item.category === 'weight')) notes.push(`${name}No weight ticket. Add the weight ticket before sending.`);
     // The invoice bills the weight the ticket measured; a difference is a typing slip in one of them.
     const billed = group.find(item => ['invoices', 'vat'].includes(item.category) && item.fields?.weightMt)?.fields.weightMt;
-    const ticket = group.find(item => item.category === 'weight' && item.fields?.weightMt)?.fields;
+    // A truck head's own weighing (a few hundred kg) is added by hand to the load's ticket;
+    // it is never the load's weight itself.
+    const ticket = group.find(item => item.category === 'weight' && item.fields?.weightMt && !item.fields.headTicket)?.fields;
+    const head = group.find(item => item.category === 'weight' && item.fields?.headTicket)?.fields;
     const weighed = ticket?.weightMt;
     if (billed && weighed && Math.abs(billed - weighed) >= 0.0005) notes.push(ticket.weightHandwritten
       ? `${name}Invoice says ${billed.toFixed(3)} MT; the handwritten figure on the weight ticket reads ${weighed.toFixed(3)} MT (handwriting may be misread). Check the ticket.`
       : `${name}Invoice says ${billed.toFixed(3)} MT, weight ticket ${weighed.toFixed(3)} MT. Check which is right before sending.`);
+    else if (!billed && ticket?.weightCheck) {
+      const read = ticket.ticket || {}, printed = (read.net / 1000).toFixed(3);
+      notes.push(read.handwrittenUnread
+        ? `${name}Weight ticket: something is written by hand under the net weight but could not be read. Using the printed net ${printed} MT — check the ticket.`
+        : read.handwritten
+          ? `${name}Weight ticket: the handwritten total reads ${weighed.toFixed(3)} MT (printed net ${printed} MT). Check the ticket.`
+          : `${name}Weight ticket: the printed weighings did not add up when read. Using ${weighed.toFixed(3)} MT — check the ticket.`);
+    }
+    if (head && ticket && !ticket.ticket?.adjustment) notes.push(`${name}There is a truck-head weighing of ${Math.round(head.weightMt * 1000)} kg; the load's ticket shows no handwritten addition for it. Check the total.`);
   }
   list.replaceChildren(...notes.map(note => {
     if (typeof note === 'string') return el('li', '', note);
@@ -831,7 +843,7 @@ function renderEmailText(byContainer) {
       const from = list => list.map(item => item.fields?.[name]).find(Boolean);
       return from(group.filter(item => DOCUMENTS.includes(item.category))) || from(group.filter(item => item.category === 'weight')) || from(group);
     };
-    const weightFrom = [...group.filter(item => DOCUMENTS.includes(item.category)), ...group.filter(item => item.category === 'weight')].find(item => item.fields?.weightMt);
+    const weightFrom = [...group.filter(item => DOCUMENTS.includes(item.category)), ...group.filter(item => item.category === 'weight' && !item.fields?.headTicket)].find(item => item.fields?.weightMt);
     const po = field('po');
     const forwarder = $('cp-forwarder').value.trim() || rememberedForwarder(po) || field('forwarder');
     const text = shipmentSummary({

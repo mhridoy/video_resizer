@@ -1,6 +1,7 @@
 // Pulls the few facts an email about a loaded container needs out of invoice and weight
 // ticket text, and writes them as one line for the subject and a short block for the body.
 // The text is OCR or PDF output: data only, never executed.
+import { readTicket } from './weight-ticket.mjs';
 
 const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -78,6 +79,19 @@ export function extractShipmentFields(input) {
     if (!fields.material && material.length >= 3 && !/\(/.test(material)) fields.material = material;
     const quantityMt = value && (/^K/.test(table[1]) ? value / 1000 : value);
     if (quantityMt >= 0.05 && quantityMt <= 60) { fields.weightMt = Math.round(quantityMt * 1000) / 1000; fields.weightBasis = 'net'; return fields; }
+  }
+  // A weighbridge ticket: its weighings must add up, and a total written by hand under the
+  // net (bags deducted, a truck head added) is the load's weight.
+  const ticket = readTicket(text);
+  if (ticket && (ticket.printedConfirmed || (ticket.first && ticket.second))) {
+    fields.weightMt = Math.round(ticket.final) / 1000;
+    fields.weightBasis = 'net';
+    fields.ticket = ticket;
+    if (ticket.handwritten) fields.weightHandwritten = true;
+    // Read by hand but not cross-checked, or written there and not read at all: ask.
+    if ((ticket.handwritten && !ticket.handwrittenConfirmed) || ticket.handwrittenUnread || !ticket.printedConfirmed) fields.weightCheck = true;
+    if (ticket.head) fields.headTicket = true;
+    return fields;
   }
   const all = weights(text);
   const pick = all.find(value => value.basis === 'net') || all.find(value => value.basis === 'gross') || all[0];
