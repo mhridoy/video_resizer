@@ -63,6 +63,9 @@ jobs:
     if: ${{ !cancelled() && needs.prepare.result != 'failure' }}
     runs-on: macos-14
     timeout-minutes: 30
+    # macOS runners can be unavailable on this account (they are cancelled before starting);
+    # the Windows release must not wait for them. The Mac files are added when this job runs.
+    continue-on-error: true
     permissions:
       contents: write
     steps:
@@ -107,7 +110,7 @@ jobs:
       - run: npm run build
   publish:
     needs: [prepare, desktop, mac, web]
-    if: needs.prepare.outputs.tag
+    if: ${{ always() && needs.prepare.outputs.tag != '' && needs.desktop.result == 'success' && needs.web.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
