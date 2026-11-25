@@ -204,6 +204,7 @@ async function readLocalItems(list) {
         };
         if (found.category) item.category = found.category;
         item.sealDigits = found.sealDigits || [];
+        item.sealCrop = found.sealCrop;
         item.fields = extractShipmentFields(found.text);
         if (found.documentType) item.documentType = found.documentType;
         item.invoiceNumber = found.invoiceNumber || item.invoiceNumber || ''; item.hasQrCode = found.hasQrCode === true;
@@ -769,14 +770,31 @@ function renderChecklist() {
     const name = byContainer.size > 1 ? `${id}: ` : '';
     if (id === 'Unassigned' && group.some(item => item.kind === 'image')) notes.push(`${name}No container number found. Type it under Shipment or check the photos.`);
     if (!group.some(item => item.category === 'seals')) notes.push(`${name}No seal photo. Add a photo of the seal before sending.`);
-    else if (!group.some(item => sealOf(item))) notes.push(`${name}Seal photo found, but the number could not be read. Type it under Shipment.`);
+    else if (!containerSeal(group)) notes.push({ text: `${name}Seal photo found, but the number could not be read. Type it under Shipment — here is the seal:`, crops: group.map(item => item.sealCrop).filter(Boolean).slice(0, 3) });
     if (!group.some(item => item.category === 'weight')) notes.push(`${name}No weight ticket. Add the weight ticket before sending.`);
     // The invoice bills the weight the ticket measured; a difference is a typing slip in one of them.
     const billed = group.find(item => ['invoices', 'vat'].includes(item.category) && item.fields?.weightMt)?.fields.weightMt;
-    const weighed = group.find(item => item.category === 'weight' && item.fields?.weightMt)?.fields.weightMt;
-    if (billed && weighed && Math.abs(billed - weighed) >= 0.0005) notes.push(`${name}Invoice says ${billed.toFixed(3)} MT, weight ticket ${weighed.toFixed(3)} MT. Check which is right before sending.`);
+    const ticket = group.find(item => item.category === 'weight' && item.fields?.weightMt)?.fields;
+    const weighed = ticket?.weightMt;
+    if (billed && weighed && Math.abs(billed - weighed) >= 0.0005) notes.push(ticket.weightHandwritten
+      ? `${name}Invoice says ${billed.toFixed(3)} MT; the handwritten figure on the weight ticket reads ${weighed.toFixed(3)} MT (handwriting may be misread). Check the ticket.`
+      : `${name}Invoice says ${billed.toFixed(3)} MT, weight ticket ${weighed.toFixed(3)} MT. Check which is right before sending.`);
   }
-  list.replaceChildren(...notes.map(text => el('li', '', text)));
+  list.replaceChildren(...notes.map(note => {
+    if (typeof note === 'string') return el('li', '', note);
+    const item = el('li', '', note.text);
+    if (note.crops.length) {
+      const strip = el('div', 'seal-crops');
+      for (const src of note.crops) {
+        const image = el('img'); image.src = src; image.alt = 'Seal close-up. Click to turn it.'; image.title = 'Click to turn';
+        let turn = 0;
+        image.onclick = () => { turn = (turn + 90) % 360; image.style.transform = `rotate(${turn}deg)`; };
+        strip.append(image);
+      }
+      item.append(strip);
+    }
+    return item;
+  }));
   list.hidden = !notes.length;
   renderEmailText(byContainer);
 }

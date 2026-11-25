@@ -545,3 +545,7 @@ progress { transition: none; }
 .email-text { display: grid; gap: 6px; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
 .email-text textarea { resize: vertical; font-size: .8125rem; line-height: 1.45; text-transform: none; height: auto; }
 .email-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+.seal-crops { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.seal-crops img { width: 100%; max-width: 240px; aspect-ratio: 1; object-fit: contain; background: #fff; border: 1px solid var(--border-strong); border-radius: 8px; cursor: pointer; transition: transform .2s; }
+.seal-crops img:not(:first-child) { width: calc(50% - 3px); max-width: 117px; }

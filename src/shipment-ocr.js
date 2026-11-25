@@ -93,12 +93,18 @@ export async function createShipmentScanner(size = photoConcurrency()) {
           }
         }
         const seals = sealsFromCloseUp(closeUp);
+        // A close-up of the seal for the person to read when the engraving defeats the OCR.
+        let sealCrop;
+        try {
+          const view = source.crop(regions[0], { pad: 0.15, edge: 420 });
+          sealCrop = view.toDataURL('image/jpeg', 0.85); view.width = view.height = 1;
+        } catch { sealCrop = undefined; }
         // Part of a serial ("8936") lets the import match this photo to a seal read elsewhere.
         const sealDigits = [...new Set(closeUp.match(/\d{4,10}/g) || [])];
         // A blue door (MAX GROSS, TARE, PAYLOAD painted on it) is not a seal unless a serial was read.
         const door = /\b(?:TARE|PAYLOAD|GROSS|CU\.?\s*CAP)\b/i.test(data.text);
         if (!seals.length && (!cyan || door)) return { ...found, text: `${data.text}\n${closeUp}`, sealDigits };
-        return { ...found, text: `${data.text}\n${closeUp}`, seals: [...found.seals, ...seals], category: 'seals', possibleSeal: !seals.length };
+        return { ...found, text: `${data.text}\n${closeUp}`, seals: [...found.seals, ...seals], category: 'seals', possibleSeal: !seals.length, sealCrop };
       } finally {
         if (worker) give(worker);
         if (source !== input) source.close();
