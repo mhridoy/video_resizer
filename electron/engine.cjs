@@ -41,7 +41,7 @@ class BatchEngine {
     if (this.running) throw new Error('A batch is already running.');
     this.running = true; this.cancelled = false;
     try {
-      const { validateOptions, inputArgs, encodingArgs } = await optionsModule;
+      const { validateOptions, inputArgs, encodingArgs, outputVideoName, uniqueVideoName } = await optionsModule;
       const options = validateOptions(rawOptions);
       this.encodingArgs = encodingArgs;
       this.inputArgs = inputArgs;
@@ -53,10 +53,13 @@ class BatchEngine {
         if (this.cancelled) break;
         const relative = file.name;
         if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) throw new Error('Unsafe relative path.');
-        // Include the original extension to keep foo.mov and foo.mp4 distinct.
-        let target = path.join(outputRoot, `${relative}.optimized.mp4`);
-        await fs.mkdir(path.dirname(target), { recursive: true });
-        try { await fs.access(target); target = path.join(path.dirname(target), `${path.basename(target, '.mp4')}-${randomUUID().slice(0, 8)}.mp4`); } catch {}
+        // Same name and folder as the source, as MP4. A name already used ("clip.mov" and
+        // "clip.mp4", or an earlier batch) becomes "clip (2).mp4" instead of overwriting.
+        const wanted = path.join(outputRoot, outputVideoName(relative));
+        await fs.mkdir(path.dirname(wanted), { recursive: true });
+        const existing = new Set((await fs.readdir(path.dirname(wanted))).map(name => name.toLowerCase()));
+        const target = path.join(path.dirname(wanted), uniqueVideoName(path.basename(wanted), name => existing.has(name)));
+        await fs.writeFile(target, '', { flag: 'wx' });
         const temporary = `${target}.${randomUUID()}.part.mp4`;
         this.onEvent({ id: file.id, status: 'processing', progress: 0, encoder });
         try {
@@ -74,6 +77,7 @@ class BatchEngine {
           await fs.rename(temporary, target);
           this.onEvent({ id: file.id, status: 'done', progress: 100, outputSize: stat.size });
         } catch (error) {
+          await fs.rm(target, { force: true }).catch(() => {});
           this.onEvent({ id: file.id, status: this.cancelled ? 'cancelled' : 'error', error: this.cancelled ? 'Cancelled' : error.message });
         } finally { await fs.rm(temporary, { force: true }).catch(() => {}); }
       }

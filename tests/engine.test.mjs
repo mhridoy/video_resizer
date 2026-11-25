@@ -49,7 +49,7 @@ test('recursive batch preserves originals, output hierarchy, handles errors and 
     assert.equal(events.filter(e => e.status === 'done').length, 1);
     assert.equal(events.filter(e => e.status === 'error').length, 1);
     assert.deepEqual(await readFile(original), before);
-    const result = path.join(output, 'nested', 'sample.MOV.optimized.mp4');
+    const result = path.join(output, 'nested', 'sample.mp4');
     const metadata = execFileSync(binary, ['-hide_banner', '-i', result, '-f', 'null', '-'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     assert.equal(typeof metadata, 'string');
     // A second batch never overwrites earlier results.
@@ -95,7 +95,7 @@ test('native engine trims, mutes and uses the fast profile while preserving the 
     const output = path.join(root, 'output');
     await engine.run(files, output, { trimStart: 0.5, trimEnd: 1.5, mute: true, profile: 'fast', hardware: false });
     assert.ok(events.some(event => event.status === 'done'));
-    const probe = spawnSync(binary, ['-hide_banner', '-i', path.join(output, 'source.mp4.optimized.mp4'), '-f', 'null', '-'], { encoding: 'utf8' });
+    const probe = spawnSync(binary, ['-hide_banner', '-i', path.join(output, 'source.mp4'), '-f', 'null', '-'], { encoding: 'utf8' });
     assert.equal(probe.status, 0, probe.stderr);
     assert.match(probe.stderr, /Duration: 00:00:01\.00/);
     assert.match(probe.stderr, /Video: h264/);
@@ -174,4 +174,12 @@ test('browser WASM engine converts with the same resize settings', async () => {
   assert.doesNotMatch(logs.join('\n'), /Audio:/);
   core.FS.unlink('/source.mp4');
   core.FS.unlink('/clip.mp4');
+});
+test('video outputs keep the source name as MP4 and never collide', async () => {
+  const { outputVideoName, uniqueVideoName } = await import('../shared/options.mjs');
+  assert.equal(outputVideoName('trip/clip.MOV'), 'trip/clip.mp4');
+  assert.equal(outputVideoName('clip'), 'clip.mp4');
+  const taken = new Set(['clip.mp4', 'clip (2).mp4']);
+  assert.equal(uniqueVideoName('clip.mp4', name => taken.has(name)), 'clip (3).mp4');
+  assert.equal(uniqueVideoName('Other.mp4', name => taken.has(name)), 'Other.mp4');
 });

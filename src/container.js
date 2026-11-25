@@ -14,7 +14,7 @@ import { detectShipmentText, resolveShipmentGroup } from '../shared/shipment-det
 const $ = id => document.getElementById(id);
 const native = window.desktop;
 const KIND_ICON = { image: 'image', video: 'video', pdf: 'file', doc: 'file', other: 'file' };
-const STATE = { replaced: 'Replaced', queued: 'Pending', processing: 'Processing', done: 'Reduced', kept: 'Kept as is', error: 'Failed', cancelled: 'Cancelled' };
+const STATE = { duplicate: 'Duplicate', replaced: 'Replaced', queued: 'Pending', processing: 'Processing', done: 'Reduced', kept: 'Kept as is', error: 'Failed', cancelled: 'Cancelled' };
 let outputFolder;
 const replaceMode = () => $('cp-output-mode').value === 'replace';
 let sourceFolder, folderReplaced = false, replacingFolder = false;
@@ -42,6 +42,15 @@ function defaultContainer() {
 const sealOf = item => item.seal || safeIdentifier($('cp-seal').value);
 const trailerOf = item => item.trailer || safeIdentifier($('cp-trailer').value);
 const containerOf = item => item.container?.id || defaultContainer() || 'Unassigned';
+// The typed seal wins; otherwise the seal read most often in this container (a typed or
+// photographed seal photo counts double), never a mix of several.
+function containerSeal(list) {
+  const typed = safeIdentifier($('cp-seal').value);
+  if (typed) return typed;
+  const votes = new Map();
+  for (const item of list) if (item.seal) votes.set(item.seal, (votes.get(item.seal) || 0) + (item.manualSeal || item.category === 'seals' ? 2 : 1));
+  return [...votes].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || '';
+}
 
 export function activateContainerTool() {
   $('cp-hint').textContent = native ? 'Photos, videos, PDF, Office files, or a WhatsApp chat-export ZIP' : 'Photos, videos (up to 1 GB each), PDF, Office files, or a WhatsApp chat-export ZIP';
@@ -73,7 +82,7 @@ $('cp-local-mode').onclick = () => {
   setStatus('Local mode selected. Click Prepare files to read numbers and invoice references locally, then save using the selected output mode. Loading stages need manual selection; uncertain photos are kept.');
 };
 
-let importWarnings = [];
+let importWarnings = [], importNotes = [];
 // ---------- Import ----------
 // A WhatsApp "Export chat" archive (or any ZIP of files) is unpacked instead of being queued.
 async function expandArchives(list) {
@@ -105,7 +114,7 @@ async function expandArchives(list) {
 
 async function addFiles(input) {
   if (busy) return;
-  cancelled = false; importWarnings = []; analysisProblem = ''; setBusy(true);
+  cancelled = false; importWarnings = []; importNotes = []; analysisProblem = ''; setBusy(true);
   const addedItems = [];
   try {
     const list = input.some(file => /\.zip$/i.test(file.name)) ? await expandArchives(input) : input;
@@ -119,19 +128,43 @@ async function addFiles(input) {
       const item = { id: nextId++, file, path, kind, category: kind === 'video' ? 'videos' : evidence.category || categorize(path), documentType: evidence.documentType, invoiceNumber: evidence.invoiceNumber, hasQrCode: false, container: detectContainer(path), evidence, seal: '', status: 'queued', progress: 0, included: true, stage: '' };
       items.push(item); addedItems.push(item);
     }
+    await markDuplicates(addedItems);
     clearPacks(); render();
-    if (!$('cp-ai').checked) await readLocalItems(addedItems);
+    if (!$('cp-ai').checked) await readLocalItems(addedItems.filter(item => !item.duplicateOf));
     if ($('cp-ai').checked && !cancelled) {
       try { await readAI(); } catch (error) { analysisProblem = cancelled ? 'AI analysis cancelled.' : error.message; }
     }
     resolveSources();
     const detected = new Set(addedItems.map(item => item.container?.id).filter(Boolean));
     renderChecklist();
-    setStatus(`${addedItems.length} files imported · ${detected.size} container numbers detected. ${cancelled ? 'Photo reading cancelled; some files need manual review. ' : ''}${addedItems.filter(item => !item.included).length} similar / extra photos excluded. ${analysisProblem || 'Selection complete.'} ${importWarnings.join(' ')}`);
+    setStatus(`${addedItems.length} files imported · ${detected.size} container numbers detected. ${cancelled ? 'Photo reading cancelled; some files need manual review. ' : ''}${addedItems.filter(item => !item.included).length} similar / extra photos excluded. ${analysisProblem || 'Selection complete.'} ${[...importNotes, ...importWarnings].join(' ')}`);
   } finally {
     sortItems(); setBusy(false); render();
   }
   if ($('cp-auto').checked && !cancelled && !analysisProblem && !importWarnings.length) await prepareFiles(true);
+}
+
+// The same photo or video is often forwarded twice in a WhatsApp group ("IMG-…(1).jpg").
+// Identical bytes are sent once: the copy is kept in the list but left out of the email.
+async function contentKey(file) {
+  const edge = 256 * 1024;
+  const head = await file.slice(0, edge).arrayBuffer();
+  const tail = file.size > edge ? await file.slice(Math.max(edge, file.size - edge)).arrayBuffer() : new ArrayBuffer(0);
+  const digest = await crypto.subtle.digest('SHA-256', await new Blob([head, tail]).arrayBuffer());
+  return `${file.size}:${[...new Uint8Array(digest)].slice(0, 12).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+async function markDuplicates(added) {
+  const seen = new Map();
+  for (const item of items) {
+    if (!crypto?.subtle) return;
+    try { item.contentKey ||= await contentKey(item.file); } catch { continue; }
+    const first = seen.get(item.contentKey);
+    if (!first) { seen.set(item.contentKey, item); continue; }
+    if (!added.includes(item)) continue;
+    Object.assign(item, { duplicateOf: first.id, status: 'duplicate', included: false, manualIncluded: false, selectionReason: `Same file as ${first.path.split('/').pop()}: sent once` });
+  }
+  const count = added.filter(item => item.duplicateOf).length;
+  if (count) importNotes.push(`${count} duplicate ${count === 1 ? 'file was' : 'files were'} left out (identical copies).`);
 }
 
 async function readLocalItems(list) {
@@ -170,13 +203,14 @@ async function readLocalItems(list) {
           trailers: [...new Map([...(item.evidence.trailers || []), ...(found.trailers || [])].map(value => [value.id, value])).values()],
         };
         if (found.category) item.category = found.category;
+        item.sealDigits = found.sealDigits || [];
         item.fields = extractShipmentFields(found.text);
         if (found.documentType) item.documentType = found.documentType;
         item.invoiceNumber = found.invoiceNumber || item.invoiceNumber || ''; item.hasQrCode = found.hasQrCode === true;
         if (found.invoiceConflict) item.review = 'Multiple invoice numbers: verify the reference.';
         if (found.possibleSeal) item.review = 'Seal photo kept. Number is optional.';
         item.localRead = true;
-      } catch (error) { if (!cancelled) item.review = 'Could not read this file. Verify its category and numbers manually.'; }
+      } catch (error) { if (!cancelled) item.review = error?.timedOut ? 'Photo too busy to read quickly. Verify its category and numbers.' : 'Could not read this file. Verify its category and numbers manually.'; }
       finally {
         source?.close();
         if (reading) setStatus(`Reading files: ${++done} of ${pending.length}`);
@@ -229,6 +263,11 @@ function resolveSources() {
     item.trailer = value.trailer;
     item.review = value.review || item.review;
   });
+  // A second seal photo whose serial was only partly legible ("8936" of AKS48936).
+  for (const item of items) {
+    const serial = (item.seal || '').replace(/\D/g, '');
+    if (item.category === 'photos' && serial.length >= 4 && item.sealDigits?.some(digits => serial.includes(digits) || digits.includes(serial))) item.category = 'seals';
+  }
 }
 function sortItems() {
   const order = Object.fromEntries(CATEGORIES.map((category, index) => [category.id, index]));
@@ -326,7 +365,7 @@ function rowFor(item) {
   const selecting = false;
   stageSelect.hidden = item.category !== 'photos' || !selecting; stageSelect.disabled = busy || folderReplaced; stageSelect.value = String(item.stage ?? '');
   includeLabel.hidden = item.category !== 'photos' || !selecting; included.checked = item.included !== false; included.disabled = busy || folderReplaced;
-  selectionNote.textContent = item.category === 'photos' ? item.selectionReason || '' : '';
+  selectionNote.textContent = item.duplicateOf ? item.selectionReason : item.category === 'photos' ? item.selectionReason || '' : '';
   select.value = item.category; select.disabled = busy || folderReplaced || item.kind === 'video';
   size.textContent = formatSize(item.file.size);
   badge.className = `status-badge ${item.status}`; badge.textContent = STATE[item.status];
@@ -361,7 +400,7 @@ function render() {
 function setBusy(value) {
   busy = value;
   $('container-panel').setAttribute('aria-busy', String(value));
-  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-trailer', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-ai-engine', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
+  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-forwarder', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-trailer', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-ai-engine', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
   document.querySelectorAll('[data-cp-limit], #cp-results button').forEach(button => { button.disabled = value; });
   $('cp-start').hidden = value; $('cp-cancel').hidden = !value; $('cp-progress-wrap').hidden = !value;
   items.forEach(rowFor); render();
@@ -464,10 +503,13 @@ function buildPacks(budget) {
   const usedNames = new Set();
   packs = [...groups].map(([container, list]) => {
     const files = [];
+    // Every file of one container carries the same seal, so the names sort together
+    // instead of switching between "…_SEAL-X_…" and no seal from one photo to the next.
+    const seal = containerSeal(list);
     for (const category of CATEGORIES) {
       const inCategory = list.filter(item => item.category === category.id);
       inCategory.forEach((item, index) => {
-        const path = uniqueOutputName(standardPath(container, category.id, index + 1, inCategory.length, item.outputExtension, item.path.replace(/\.[^./]+$/, `.${item.outputExtension}`), rename, sealOf(item), item.category === 'photos' ? item.stage : '', item.documentType, item.invoiceNumber, item.hasQrCode), usedNames);
+        const path = uniqueOutputName(standardPath(container, category.id, index + 1, inCategory.length, item.outputExtension, item.path.replace(/\.[^./]+$/, `.${item.outputExtension}`), rename, seal, item.category === 'photos' ? item.stage : '', item.documentType, item.invoiceNumber, item.hasQrCode), usedNames);
         item.sendName = path;
         files.push({ item, name: path, blob: item.output, size: item.output.size });
       });
@@ -706,6 +748,7 @@ $('cp-pick-files').onclick = () => { if (!busy && !sourceFolder) $('cp-files-inp
 for (const id of ['cp-files-input', 'cp-folder-input']) $(id).onchange = event => { const picked = [...event.target.files]; event.target.value = ''; addFiles(picked).catch(error => setStatus(error.message)); };
 $('cp-clear').onclick = () => {
   if (busy || (pending() && !confirm('Clear all files? Downloads you have not saved will be lost.'))) return;
+  $('cp-forwarder').value = '';
   items.forEach(item => { if (item.previewUrl) URL.revokeObjectURL(item.previewUrl); }); items = []; sourceFolder = undefined; folderReplaced = false; analysisProblem = ''; importWarnings = []; clearPacks(); setBusy(false); setStatus(''); renderChecklist();
 };
 $('cp-limit').addEventListener('input', () => { syncPresets(); clearPacks(); });
@@ -728,6 +771,10 @@ function renderChecklist() {
     if (!group.some(item => item.category === 'seals')) notes.push(`${name}No seal photo. Add a photo of the seal before sending.`);
     else if (!group.some(item => sealOf(item))) notes.push(`${name}Seal photo found, but the number could not be read. Type it under Shipment.`);
     if (!group.some(item => item.category === 'weight')) notes.push(`${name}No weight ticket. Add the weight ticket before sending.`);
+    // The invoice bills the weight the ticket measured; a difference is a typing slip in one of them.
+    const billed = group.find(item => ['invoices', 'vat'].includes(item.category) && item.fields?.weightMt)?.fields.weightMt;
+    const weighed = group.find(item => item.category === 'weight' && item.fields?.weightMt)?.fields.weightMt;
+    if (billed && weighed && Math.abs(billed - weighed) >= 0.0005) notes.push(`${name}Invoice says ${billed.toFixed(3)} MT, weight ticket ${weighed.toFixed(3)} MT. Check which is right before sending.`);
   }
   list.replaceChildren(...notes.map(text => el('li', '', text)));
   list.hidden = !notes.length;
@@ -747,10 +794,13 @@ function renderEmailText(byContainer) {
       return from(group.filter(item => DOCUMENTS.includes(item.category))) || from(group.filter(item => item.category === 'weight')) || from(group);
     };
     const weightFrom = [...group.filter(item => DOCUMENTS.includes(item.category)), ...group.filter(item => item.category === 'weight')].find(item => item.fields?.weightMt);
+    const po = field('po');
+    const forwarder = $('cp-forwarder').value.trim() || rememberedForwarder(po) || field('forwarder');
     const text = shipmentSummary({
       container: id === 'Unassigned' ? '' : id,
       weightMt: weightFrom?.fields.weightMt, weightBasis: weightFrom?.fields.weightBasis,
-      seal: group.map(sealOf).find(Boolean), po: field('po'), forwarder: field('forwarder'),
+      seal: containerSeal(group), po, forwarder,
+      material: field('material'), sequence: field('sequence'),
       trailer: group.map(trailerOf).find(Boolean),
     });
     if (!text.subject) continue;
@@ -776,6 +826,23 @@ function renderEmailText(byContainer) {
   box.replaceChildren(...cards);
   box.hidden = !cards.length;
 }
+
+// The forwarder is not on the invoice, but it stays the same for every container of an order:
+// remember what was typed for each PO number (on this device only).
+const FORWARDER_KEY = po => `binary-beat.forwarder.${po}`;
+function rememberedForwarder(po) {
+  if (!po) return '';
+  try { return localStorage.getItem(FORWARDER_KEY(po)) || ''; } catch { return ''; }
+}
+function currentPos() {
+  return [...new Set(items.filter(item => ['invoices', 'vat'].includes(item.category)).map(item => item.fields?.po).filter(Boolean))];
+}
+$('cp-forwarder').addEventListener('change', () => {
+  const value = $('cp-forwarder').value.trim();
+  for (const po of currentPos()) { try { if (value) localStorage.setItem(FORWARDER_KEY(po), value); else localStorage.removeItem(FORWARDER_KEY(po)); } catch { /* storage unavailable */ } }
+  renderChecklist();
+});
+$('cp-forwarder').addEventListener('input', renderChecklist);
 
 function groupByAllSources() {
   const groups = new Map();

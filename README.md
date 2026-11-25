@@ -13,7 +13,7 @@ Web app: https://video-resizer-eta.vercel.app/
 3. Pick Balanced (default), Fastest, Smallest file, or Higher quality. Optionally set start/end seconds or remove audio under **Trim & audio**.
 4. Click **Optimize videos**.
 
-The desktop app saves to a new, timestamped folder inside Videos, or inside your selected output directory. Subfolders are preserved. Outputs include the source extension in their names, so `clip.mov` and `clip.mp4` cannot overwrite one another. Already generated `Video Resizer Output…` folders are excluded from scans.
+The desktop app saves to a new, timestamped folder inside Videos, or inside your selected output directory. Subfolders are preserved. Outputs keep the source name as MP4 (`clip.mov` → `clip.mp4`); a name already used becomes `clip (2).mp4` instead of overwriting. Already generated `Video Resizer Output…` folders are excluded from scans.
 
 The web app compresses files locally in your browser without uploading videos. Optional shipment Pro AI sends bounded photo/PDF previews to the server. Download individual results from the queue. Chrome and Edge also offer **Save automatically to folder**, which preserves the input hierarchy and avoids keeping every result in memory. Do not close the tab while processing or before saving downloads.
 
@@ -23,8 +23,10 @@ Prepare a container's load documentation so one email carries all of it. The lim
 
 1. Open **Container Load Pack** and import a WhatsApp **Export chat ZIP**, folder, or files. Preparation starts automatically (disable **Prepare automatically** to review first). Chat transcripts are read locally as data for shipment numbers, then omitted from the output.
 2. **Free OCR is on by default.** Tesseract reads each photo on the device (no key, nothing uploaded) for the **container number** (ISO 6346 check digit verified), the **seal number**, and the **trailer or truck number** — a labelled plate or fleet number ("TRAILER NO", "TRUCK NO" on a weight ticket) or an ISO chassis ID (category Z). It also recognises weight tickets, invoices and shipping documents. The optional **vision model** (open-source CLIP, about 154 MB on first use) sorts loading photos by stage; optional **Cloud Pro AI** sends reduced previews to the configured server.
-3. **Email subject and body.** From the invoice (and the weight ticket when the invoice has no weight) the app reads the **PO number**, the **forwarder name** and the **weight in MT** (KG is converted; net is preferred over gross), and joins them with the container and seal numbers into one subject line, e.g. `CNTR CSQU3054383 | WT 24.500 MT NET | SEAL ML0098812 | PO 4500123456 | FWD ABC LOGISTICS LTD`, plus a short body. Both are editable and have **Copy subject** / **Copy body** buttons. Anything not found is left out, never guessed.
-4. **Every photo is kept and prepared.** There is no per-stage limit. If a container has **no seal photo**, a seal whose number could not be read, **no weight ticket**, or no container number, a warning lists what is missing. Warnings never block: the files that are there are still prepared for the email.
+3. **Email subject and body.** From the invoice (and the weight ticket when the invoice has no weight) the app reads the **material**, **PO number**, **which container of the order** ("Container Ref.: 2ND"), the billed **quantity in MT** and the **forwarder name**, and writes the subject the way the team's own emails do, e.g. `Brass Honey, TLLU 2949292, PC-1276, 2ND CNTR`, plus a body with weight, seal and trailer. Both are editable and have **Copy subject** / **Copy body** buttons. Anything not found is left out, never guessed.
+   The **Forwarder** you type is remembered per PO number on this device, so the next container of the same order fills it in. A warning appears when the invoice and the weight ticket disagree on the weight.
+4. **Identical copies** (the same photo or video forwarded twice) are sent once and marked *Duplicate*.
+5. **Every photo is kept and prepared.** There is no per-stage limit. If a container has **no seal photo**, a seal whose number could not be read, **no weight ticket**, or no container number, a warning lists what is missing. Warnings never block: the files that are there are still prepared for the email.
 5. Container/seal numbers, document types, stages and inclusion remain editable. **Unreadable seal numbers never cause seal photos to be dropped.** A unique verified container can be shared within the same source import; conflicting numbers require review. Local ML uses conservative CLIP similarity thresholds for approximate stages, not calibrated probability or measured cargo volume. These estimates have not been validated on a representative shipment dataset; review them before replacing originals. OCR-only mode leaves stages for manual selection.
 6. Selection, flat naming and compression run automatically. **The entire batch shares 24,000,000 bytes by default**, including every container and ZIP overhead. Small files keep their bytes; videos receive a larger compression budget. If any retained file fails, processing is cancelled, or the total cannot fit, the package is marked incomplete and combined export stays unavailable. The app never silently drops a video or splits the batch into extra emails.
 7. **Choose output folder** selects the destination before import. Prepared files save there automatically when the batch fits the limit. You can also choose the destination afterward with **Save to chosen folder**. Files are flat, without CSVs or category subfolders, and originals are preserved by default. Output collisions are reported rather than overwriting existing files.
@@ -78,25 +80,18 @@ Mail servers measure the encoded message and base64 inflates attachments by abou
 
 Files already within the limit are kept byte-for-byte. The container folder workflow replaces originals only when Replace files in the imported folder is explicitly selected; the default output-folder workflow preserves them. Compression is local; enabled Pro AI sends shipment previews for analysis.
 
-## Windows downloads
+## Desktop downloads (Windows and Mac)
 
-**Direct downloads (no GitHub login needed):**
+Download from the website (the repository is private, so GitHub's own release links do not work for visitors):
 
-- [Windows installer EXE](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Setup.exe)
-- [Windows portable EXE](https://github.com/mhridoy/video_resizer/releases/latest/download/Video-Resizer-Windows-Portable.exe)
+- Windows installer: https://video-resizer-eta.vercel.app/api/download?file=windows
+- Windows portable: https://video-resizer-eta.vercel.app/api/download?file=windows-portable
+- Mac, Apple silicon (M1–M4): https://video-resizer-eta.vercel.app/api/download?file=mac-arm64
+- Mac, Intel: https://video-resizer-eta.vercel.app/api/download?file=mac-x64
 
-These links become available after the first successful build and release. Every successful main-branch build publishes a release with these stable asset names.
+`/api/download` asks GitHub for a short-lived signed link to the newest release file and redirects to it. **One-time setup:** create a fine-grained GitHub token with read-only *Contents* access to this repository and add it in Vercel as the environment variable `GITHUB_RELEASES_TOKEN`, then redeploy.
 
-The website downloads the Windows installer from GitHub Releases. The Windows workflow builds both an installable Setup EXE and a portable EXE.
-
-For individual build artifacts, open [Build Windows installer and web](https://github.com/mhridoy/video_resizer/actions/workflows/build.yml), choose the latest successful run, and download an artifact at the bottom:
-
-| Artifact | Contents |
-| --- | --- |
-| Video-Resizer-Windows-x64 | Windows installer and portable EXE |
-| Video-Resizer-Web | Static website build |
-
-GitHub requires sign-in to download workflow artifacts, which are retained for 30 days. Run the workflow again to regenerate them. These initial builds are **unsigned**; Windows may display an unknown-publisher warning. Publishing trusted installers requires your signing certificates. The bundled FFmpeg needs no separate installation.
+Every successful main-branch build publishes a release with these stable file names. The builds are **unsigned**. Windows may show an unknown-publisher warning. On Mac the app is ad-hoc signed: the first time, right-click it and choose **Open** (or System Settings → Privacy & Security → Open Anyway). Automatic updates exist only for the Windows Setup EXE; Mac users download new versions from the website.
 
 ## Speed and quality
 
@@ -105,7 +100,7 @@ GitHub requires sign-in to download workflow artifacts, which are retained for 3
 - The queue processes one file at a time to avoid exhausting memory and to keep the computer responsive.
 - A minute count or percentage reduction cannot be guaranteed. Length, resolution, source codec, hardware, and settings determine the result. Already compressed files can become larger; the app reports actual input/output sizes.
 - Resolution is a longest-edge cap: 1080p = 1920, 720p = 1280, and 480p ≈ 853 pixels, rounded to even dimensions. Portrait clips remain portrait. Smaller square-pixel videos are not enlarged. Non-square pixels are normalized to square pixels while preserving display aspect ratio as closely as even dimensions permit.
-- Web uses a single-thread FFmpeg WASM engine. Its initial download is about 32 MB. Individual web inputs are limited to 1 GB, and lower limits can apply on memory-constrained devices. Large jobs belong in the desktop app.
+- Web uses the multi-threaded FFmpeg WASM engine (up to 4 cores, about 3× faster) on cross-origin-isolated pages and falls back to the single-thread engine automatically if a video fails. Its initial download is about 32 MB. Individual web inputs are limited to 1 GB, and lower limits can apply on memory-constrained devices. Large jobs belong in the desktop app.
 - Output keeps the first video stream and first audio stream, if present. Subtitles, attachments, extra audio tracks and other data streams are not copied. This is for everyday videos, not archival preservation. HDR-to-SDR tone mapping is not included; use SDR source videos for predictable color.
 - Cancellation preserves completed outputs and removes incomplete desktop outputs. Failed files are reported without stopping the rest of the batch. Click Optimize again to retry unfinished/failed files; completed files are skipped.
 

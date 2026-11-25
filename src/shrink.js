@@ -1,7 +1,7 @@
 // Shrinks one file below a byte limit. Shared by the container pack and any future batch tools.
 import { mp4Duration } from '../shared/mp4-duration.mjs';
 import { replaceExtension, videoPlan, videoArgs, IMAGE_STEPS, scaledSize, extensionOf } from '../shared/fit-size.mjs';
-import { loadVideoEngine, stopVideoEngine, dropEngine } from './video-engine.js';
+import { loadVideoEngine, stopVideoEngine, dropEngine, threadArgs, threaded } from './video-engine.js';
 
 const native = window.desktop;
 const DOC_STEPS = [{ maxEdge: 2400, quality: 0.8 }, { maxEdge: 1800, quality: 0.7 }, { maxEdge: 1400, quality: 0.6 }, { maxEdge: 1000, quality: 0.5 }, { maxEdge: 800, quality: 0.42 }];
@@ -146,7 +146,7 @@ function videoDuration(file) {
 }
 
 async function encodeVideoInBrowser(item, target, job, single) {
-  if (item.file.size > MAX_WEB_VIDEO) throw Error('Over the 1 GB browser limit. Use the desktop app for this video.');
+  if (item.file.size > MAX_WEB_VIDEO) throw Object.assign(Error('Over the 1 GB browser limit. Use the desktop app for this video.'), { final: true });
   // Read the length before the engine starts; the browser demuxes formats it can play.
   // The header gives the length for any MP4/MOV, even one the browser cannot play; asking
   // FFmpeg instead would end in an error the multi-core engine does not survive.
@@ -188,13 +188,14 @@ async function encodeVideoInBrowser(item, target, job, single) {
       job.check();
       const plan = videoPlan(duration, target, attempt, { mute: job.mute });
       job.status(`${item.path}: encoding at ${plan.videoKbps} kbps, up to ${plan.maxEdge}px${attempt ? ` (attempt ${attempt + 1})` : ''}…`);
-      const code = await engine.exec(['-hide_banner', '-y', '-i', inputName, ...videoArgs(plan), 'output.mp4']);
+      const threads = threadArgs(engine);
+      const code = await engine.exec(['-hide_banner', '-y', ...threads.input, '-i', inputName, ...videoArgs(plan), ...threads.output, 'output.mp4']);
       job.check();
-      if (code !== 0) throw Error(`Could not convert this video. ${log.split('\n').filter(Boolean).slice(-2).join(' ')}`);
+      if (code !== 0) throw Error(`Could not convert this video. ${log.split('\n').filter(line => line && !/^Aborted/.test(line)).slice(-2).join(' ')}`);
       const output = await engine.readFile('output.mp4');
       if (output.byteLength && output.byteLength <= target) return { blob: new Blob([output], { type: 'video/mp4' }), path: replaceExtension(item.path, 'mp4'), note: `MP4 · ${plan.videoKbps} kbps · max ${plan.maxEdge}px` };
     }
-    throw Error('Could not get this video under the limit.');
+    throw Object.assign(Error('Could not get this video under the limit.'), { final: true });
   } catch (error) {
     // A failed WASM instance can be left in a bad state; start fresh for the next file.
     if (engine) discard();
@@ -207,10 +208,19 @@ async function encodeVideoInBrowser(item, target, job, single) {
   }
 }
 
-// The multi-core engine fails on Container Pack videos (and in some browsers stalls at 0%
-// instead of failing), so the pack always uses the single-core engine, which finishes.
+// The multi-core engine is about three times faster. Should it fail on a video anyway, that
+// video is redone on the single-core engine, and so are the rest of this session's videos.
+let preferSingle = false;
 async function fitVideoBrowser(item, target, job) {
-  return encodeVideoInBrowser(item, target, job, true);
+  try { return await encodeVideoInBrowser(item, target, job, preferSingle); }
+  catch (error) {
+    job.check();
+    if (preferSingle || !threaded() || error.final) throw error;
+    preferSingle = true;
+    job.status(`${item.path}: retrying on the single-core engine…`);
+    job.progress(0);
+    return encodeVideoInBrowser(item, target, job, true);
+  }
 }
 
 /**

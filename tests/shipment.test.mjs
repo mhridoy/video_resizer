@@ -12,7 +12,7 @@ test('reads chat identifiers, weight tickets, and typed shipping documents', () 
   assert.equal(found.seals[0].id, 'ABC1234567');
   // Seals are stamped with the owner prefix split from the serial, and sit next to other text.
   for (const [text, id] of [['SEAL NO ML 0098812', 'ML0098812'], ['SEAL: ML-US 1234567', 'MLUS1234567'],
-    ['SEAL NO. ML0098812', 'ML0098812'], ['SEAL NO 0098812 GROSS 32450 KG', '0098812'], ['SEAL 445566', '445566']]) {
+    ['SEAL NO. ML0098812', 'ML0098812'], ['SEAL NO 0098812 GROSS 32450 KG', '0098812'], ['SEAL 445566', '445566'], ['SEAL NO ML0098812 O82', 'ML0098812']]) {
     assert.deepEqual(detectShipmentText(text).seals.map(value => value.id), [id], text);
   }
   for (const text of ['SEALED CARTONS 20', 'SEAL NO: AB', 'SEAL NO: ML']) {
@@ -100,4 +100,28 @@ test('one trailer in an import is shared by its files', () => {
 test('an invoice that lists net weight and a date is still an invoice', () => {
   assert.equal(detectShipmentText('COMMERCIAL INVOICE NO 551 DATE 12/10/2026 NET WEIGHT: 24,500 KGS').category, 'invoices');
   assert.equal(detectShipmentText('NET WEIGHT 24,520 KG DATE 12/10/2026 OPERATOR SAM').category, 'weight');
+});
+
+test('recovers a boxed check digit OCR misread, but not a wrong printed number', async () => {
+  const { detectShipmentText } = await import('../shared/shipment-detection.mjs');
+  assert.deepEqual(detectShipmentText('TGBU 248128 7 22G1').containers.map(value => value.id), ['TGBU2481282']);
+  assert.deepEqual(detectShipmentText('ESDU | 416123 1').containers.map(value => value.id), ['ESDU4161237']);
+  assert.equal(detectShipmentText('CSQU3054384').containers[0].valid, false);
+});
+
+test('seal readings vote across photos; a known maker prefix is put right', async () => {
+  const { sealCandidates, sealsFromCloseUp, resolveShipmentGroup } = await import('../shared/shipment-detection.mjs');
+  assert.deepEqual(sealCandidates('AKS 48936 AKS Global'), ['AKS48936']);
+  assert.deepEqual(sealCandidates('SUAMMZ403365'), ['SDAMM2403365']);
+  const photo = text => ({ evidence: { containers: [], trailers: [], seals: sealsFromCloseUp(text) } });
+  const group = resolveShipmentGroup([photo('SADMM2600630'), photo('SADMM2600630'), photo('SADMM2600636')]);
+  assert.ok(group.every(record => record.seal === 'SADMM2600630'));
+  assert.equal(resolveShipmentGroup([photo('SDAMM2403303'), photo('SUAMH2403300')])[0].seal, '');
+});
+
+test('weighbridge ticket: first and second weighings are not the load, handwritten deduction is', async () => {
+  const { extractShipmentFields } = await import('../shared/shipment-summary.mjs');
+  assert.equal(extractShipmentFields('1ST WEIGHT 16050 Kg 2 ND WEIGHT 37100 Kg NET WEIGHT 21050 Kg HEAD (-) 150 =20900').weightMt, 20.9);
+  assert.deepEqual(extractShipmentFields('MAX GROSS 30480 KG TARE 2100 KG PAYLOAD 28360 KGS'), {});
+  assert.equal(extractShipmentFields('P.O BOX-66688 P.O. Number: AP26/V00129/016').po, 'AP26/V00129/016');
 });

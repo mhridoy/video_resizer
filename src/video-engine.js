@@ -9,7 +9,25 @@
 let engine, ready = false, controller, loadedSingle = false;
 
 export const threaded = () => globalThis.crossOriginIsolated === true && typeof SharedArrayBuffer === 'function';
-export const engineCores = () => threaded() ? Math.max(2, Math.min(8, navigator.hardwareConcurrency || 4)) : 1;
+// x264 in the threaded WebAssembly build crashes ("function signature mismatch") when it
+// spreads its lookahead over several threads, which it does on its own from six threads up,
+// and it deadlocks beyond four encoder threads. Four threads with a single lookahead thread
+// are stable and about three times faster than the single-threaded build.
+const MAX_THREADS = 4;
+export const engineCores = () => threaded() ? Math.max(2, Math.min(MAX_THREADS, navigator.hardwareConcurrency || 4)) : 1;
+
+/** Whether `candidate` is the loaded multi-threaded engine. */
+export const isThreadedEngine = candidate => Boolean(candidate && candidate === engine && ready && !loadedSingle);
+
+/**
+ * Extra FFmpeg arguments for the engine in use: decoder threads go before `-i`, encoder
+ * threads before the output name. The single-threaded build needs none.
+ */
+export function threadArgs(candidate) {
+  if (!isThreadedEngine(candidate)) return { input: [], output: [] };
+  const count = String(engineCores());
+  return { input: ['-threads', count], output: ['-threads', count, '-x264-params', 'lookahead-threads=1'] };
+}
 
 export function currentEngine() { return ready ? engine : undefined; }
 

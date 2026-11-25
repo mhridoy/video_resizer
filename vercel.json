@@ -7,6 +7,9 @@
   "functions": {
     "api/shipment-analyze.js": {
       "maxDuration": 300
+    },
+    "api/download.js": {
+      "maxDuration": 15
     }
   },
   "headers": [

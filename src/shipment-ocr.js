@@ -1,6 +1,6 @@
 import { hasShipmentQr } from './shipment-qr.js';
 import { createWorker } from 'tesseract.js';
-import { detectShipmentText } from '../shared/shipment-detection.mjs';
+import { detectShipmentText, sealsFromCloseUp, confirmedSeal } from '../shared/shipment-detection.mjs';
 import { sealRegions } from '../shared/photo-regions.mjs';
 import { readPhoto } from './photo-source.js';
 import { photoConcurrency } from '../shared/parallel.mjs';
@@ -18,23 +18,50 @@ async function startWorker() {
  * Reads shipment numbers off photos. Engines are started in parallel so several photos can
  * be read at once; `scan` takes whichever engine is free, so callers just run concurrently.
  */
+// Ordinary photos read in about a second. A busy, grainy picture can keep the engine busy
+// for minutes without finding anything, so a photo gets this long before it is given up on
+// (it stays in the pack, marked for review) and its engine is replaced by a fresh one.
+const PHOTO_TIME_LIMIT = 15_000;
+const timedOut = () => Object.assign(Error('Reading this photo took too long.'), { timedOut: true });
+
 export async function createShipmentScanner(size = photoConcurrency()) {
-  const workers = await Promise.all(Array.from({ length: Math.max(1, size) }, startWorker));
+  const workers = new Set(await Promise.all(Array.from({ length: Math.max(1, size) }, startWorker)));
   const idle = [...workers];
   const waiting = [];
+  let closed = false;
   const take = () => idle.length ? Promise.resolve(idle.pop()) : new Promise(resolve => waiting.push(resolve));
   const give = worker => { const next = waiting.shift(); if (next) next(worker); else idle.push(worker); };
+  const recognize = async (worker, canvas) => {
+    let timer;
+    try {
+      return await Promise.race([worker.recognize(canvas), new Promise((_, reject) => { timer = setTimeout(() => reject(timedOut()), PHOTO_TIME_LIMIT); })]);
+    } finally { clearTimeout(timer); }
+  };
+  // Terminating is the only way to stop a recognition in progress.
+  const replace = async worker => {
+    workers.delete(worker); worker.terminate().catch(() => {});
+    if (closed) return undefined;
+    const fresh = await startWorker();
+    if (closed) { fresh.terminate().catch(() => {}); return undefined; }
+    workers.add(fresh); return fresh;
+  };
   return {
-    size: workers.length,
-    close: () => Promise.all(workers.map(worker => worker.terminate())),
+    size: workers.size,
+    close: () => { closed = true; return Promise.all([...workers].map(worker => worker.terminate())); },
     async scan(input, check = () => {}, knownQr) {
       check();
       // One decode per photo: the OCR copy, the QR pixels and the seal crop all come from it.
       const source = input.stretchTo ? input : await readPhoto(input);
-      const worker = await take();
+      let worker = await take();
       try {
         check();
-        const { data } = await worker.recognize(source.textCanvas());
+        let data;
+        const read = async canvas => {
+          try { return (await recognize(worker, canvas)).data; }
+          catch (error) { if (error.timedOut) worker = await replace(worker); throw error; }
+        };
+        data = await read(source.textCanvas());
+        check();
         check();
         // A QR code only decides between an ordinary and a VAT invoice, and looking for one
         // is the slowest step there is, so only invoices are searched.
@@ -44,16 +71,36 @@ export async function createShipmentScanner(size = photoConcurrency()) {
           check();
           if (hasQrCode) found = detectShipmentText(data.text, { hasQrCode });
         }
-        if (found.category) return { ...found, text: data.text };
-        // Keep a likely seal photo even when the engraved serial cannot be read.
-        // Do not spend time retrying the serial: the photo is the required evidence.
-        const { canvas, context } = source.viewAt(320);
-        try {
-          const regions = sealRegions(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
-          return { ...found, text: data.text, ...(regions.length ? { category: 'seals', possibleSeal: true } : {}) };
-        } finally { canvas.width = canvas.height = 1; }
+        if (found.category || found.containers.length) return { ...found, text: data.text };
+        // A seal photo: find the seal's coloured plastic, enlarge it and read its serial,
+        // which runs along the seal's body and is usually photographed sideways.
+        const { canvas: small, context } = source.viewAt(320);
+        const pixels = context.getImageData(0, 0, small.width, small.height).data;
+        // Cyan plastic is a seal on its own; yellow (bumpers, stripes) only once a serial is read.
+        const cyan = sealRegions(pixels, small.width, small.height, ['cyan']).length > 0;
+        const regions = sealRegions(pixels, small.width, small.height);
+        small.width = small.height = 1;
+        if (!regions.length) return { ...found, text: data.text };
+        // Tight crops read best. Each seal is read turned three ways and drawn three ways (as
+        // photographed, engraving on cyan, least-saturated ink); readings then vote.
+        let closeUp = '';
+        search: for (const region of regions.slice(0, 2)) {
+          for (const turn of [0, 1, -1]) for (const ink of ['', 'cyan', 'grey']) {
+            const crop = source.crop(region, { pad: 0.04, edge: 600, turn, ink });
+            try { closeUp += '\n' + (await read(crop)).text; } finally { crop.width = crop.height = 1; }
+            check();
+            if (confirmedSeal(sealsFromCloseUp(closeUp))) break search;
+          }
+        }
+        const seals = sealsFromCloseUp(closeUp);
+        // Part of a serial ("8936") lets the import match this photo to a seal read elsewhere.
+        const sealDigits = [...new Set(closeUp.match(/\d{4,10}/g) || [])];
+        // A blue door (MAX GROSS, TARE, PAYLOAD painted on it) is not a seal unless a serial was read.
+        const door = /\b(?:TARE|PAYLOAD|GROSS|CU\.?\s*CAP)\b/i.test(data.text);
+        if (!seals.length && (!cyan || door)) return { ...found, text: `${data.text}\n${closeUp}`, sealDigits };
+        return { ...found, text: `${data.text}\n${closeUp}`, seals: [...found.seals, ...seals], category: 'seals', possibleSeal: !seals.length };
       } finally {
-        give(worker);
+        if (worker) give(worker);
         if (source !== input) source.close();
       }
     },
