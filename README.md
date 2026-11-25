@@ -1,6 +1,6 @@
 # Binary Beat — Free File Tools
 
-A searchable dashboard with **13 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows and the web**. Filter by file type, choose a tool, and process files locally.
+A searchable dashboard with **14 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows, Mac and the web**. Filter by file type, choose a tool, and process files locally.
 
 Batch resize and compress videos, or prepare shipment evidence. The video tools preserve originals; Container Load Pack saves into a chosen output folder by default, with an explicit option to replace imported originals.
 
@@ -136,6 +136,10 @@ Import this repository into Vercel. The included `vercel.json` builds the Vite w
 ### Local installer fallback
 
 If hosted Actions cannot run, prepare `release/win-unpacked` with electron-builder on a build machine, install NSIS 3, and run `node scripts/build-local-installer.mjs`. Set `NSIS_BINARY` and `NSISDIR` if NSIS is not installed globally. This produces an unsigned per-user Setup EXE with Start Menu shortcuts and an uninstaller; it removes only packaged files and leaves user-created videos intact.
+
+## Scan document (phone photo → PDF scan)
+
+Photos of weight tickets, invoices or any sheet of paper become clean scans, like a scanner app: the sheet's four corners are found and the page is straightened, uneven light and colour casts are removed so the paper is white and the ink dark, and each photo becomes a one-page A4 PDF. In Container Load Pack, **Scan document photos** (on by default) does this to weight-ticket and invoice photos before they are packed. Everything runs on the device.
 
 ## Image and PDF tools
 

@@ -14,6 +14,7 @@ const tools = [
   { id: 'compress', name: 'Compress PDF', category: 'pdf', icon: 'file', description: 'Lossless or image-based PDF compression.' },
   { id: 'split', name: 'Split PDF', category: 'pdf', icon: 'split', description: 'Extract page ranges or split every page.' },
   { id: 'rotate', name: 'Rotate PDF', category: 'pdf', icon: 'rotate', description: 'Rotate all or selected pages.' },
+  { id: 'image-scan', name: 'Scan document', category: 'pdf', icon: 'file', description: 'Turn phone photos of weight tickets and invoices into clean PDF scans.', badge: 'New' },
   { id: 'images-pdf', name: 'Images to PDF', category: 'pdf', icon: 'images-pdf', description: 'Create one PDF from a set of images.' }
 ];
 const CATEGORY_TITLES = { all: 'All tools', logistics: 'Container pack', video: 'Video tools', image: 'Image tools', pdf: 'PDF tools' };
