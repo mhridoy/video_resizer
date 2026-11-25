@@ -1,6 +1,6 @@
-import { inputArgs, encodingArgs, validateOptions, isVideo } from '../shared/options.mjs';
+import { inputArgs, encodingArgs, validateOptions, isVideo, outputVideoName, uniqueVideoName } from '../shared/options.mjs';
 import { icon } from './icons.js';
-import { loadVideoEngine, stopVideoEngine, dropEngine, engineCores } from './video-engine.js';
+import { loadVideoEngine, stopVideoEngine, dropEngine, engineCores, threadArgs, threaded } from './video-engine.js';
 
 const $ = id => document.getElementById(id);
 const native = window.desktop;
@@ -91,7 +91,7 @@ function updateRow(file) {
   const progress = row.querySelector('progress'); progress.hidden = file.status !== 'processing'; progress.value = file.progress || 0;
   row.querySelector('.remove-video').disabled = busy;
   if (file.url && !row.querySelector('.download')) {
-    const link = document.createElement('a'); link.className = 'download'; link.href = file.url; link.download = file.name.replaceAll(/[\\/]/g, '_') + '.optimized.mp4'; link.textContent = 'Download'; row.querySelector('.video-actions').append(link);
+    const link = document.createElement('a'); link.className = 'download'; link.href = file.url; link.download = outputVideoName(file.name).split(/[\\/]/).pop(); link.textContent = 'Download'; row.querySelector('.video-actions').append(link);
   }
 }
 function addFiles(files) {
@@ -231,9 +231,14 @@ document.addEventListener('dragover', event => event.preventDefault());
 document.addEventListener('drop', event => event.preventDefault());
 window.addEventListener('beforeunload', event => { if (busy || (!native && queue.some(f => f.url))) { event.preventDefault(); event.returnValue = ''; } });
 
-async function getBrowserEngine(token) {
+// Set once the multi-core engine fails in this tab, so later files go straight to the
+// single-core engine instead of failing first every time.
+let preferSingle = false;
+const finalError = message => Object.assign(new Error(message), { final: true });
+
+async function getBrowserEngine(token, single) {
   const check = () => { if (cancelled || token !== epoch) throw new Error('Cancelled'); };
-  const engine = await loadVideoEngine({ check, status: notice });
+  const engine = await loadVideoEngine({ check, status: notice, single });
   ffmpeg = engine; ready = true;
   return engine;
 }
@@ -249,46 +254,69 @@ async function uniqueOutputHandle(directory, filename) {
     candidate = `${stem} (${suffix++}).mp4`;
   }
 }
+// Converts one file and returns the MP4 bytes. A failed engine is discarded so a damaged
+// WebAssembly instance cannot poison the next file.
+async function convertInBrowser(file, options, token, single) {
+  const engine = await getBrowserEngine(token, single);
+  const threads = threadArgs(engine);
+  const inputName = `input.${file.name.split('.').pop().toLowerCase()}`;
+  let log = '', duration = 0, sourceDuration = 0, maxFrames = 0, ok = false;
+  const trimmed = options.trimStart > 0 || options.trimEnd !== undefined;
+  const logger = ({ message }) => {
+    log = (log + '\n' + message).slice(-4000);
+    const match = message.match(/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/);
+    if (match) {
+      sourceDuration = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+      duration = Math.max(0, Math.min(sourceDuration, options.trimEnd ?? sourceDuration) - options.trimStart);
+    }
+    const frames = message.match(/frame=\s*(\d+)/);
+    if (frames) maxFrames = Math.max(maxFrames, Number(frames[1]));
+  };
+  const listener = ({ progress, time }) => {
+    const value = duration > 0 && Number.isFinite(time) ? time / 1e6 / duration * 100 : trimmed ? 0 : progress * 100;
+    file.progress = Number.isFinite(value) ? Math.max(0, Math.min(99, value)) : 0;
+    scheduleProgress(file);
+  };
+  engine.on('progress', listener); engine.on('log', logger);
+  try {
+    const data = new Uint8Array(await file.file.arrayBuffer());
+    if (cancelled || token !== epoch) throw new Error('Cancelled');
+    await engine.writeFile(inputName, data);
+    const result = await engine.exec(['-hide_banner', '-y', ...inputArgs(options), ...threads.input, '-i', inputName, ...encodingArgs(options), ...threads.output, 'output.mp4']);
+    if (cancelled || token !== epoch) throw new Error('Cancelled');
+    if (options.trimStart > 0 && sourceDuration > 0 && options.trimStart >= sourceDuration) throw finalError('Trim start must be earlier than the end of this video.');
+    if (result !== 0) throw new Error(`Could not convert this video. ${log.split('\n').filter(line => line && !/^Aborted/.test(line)).slice(-2).join(' ')}`);
+    if (maxFrames === 0 && /(?:frame=\s*0|Output file is empty|video:0kB)/.test(log)) throw finalError('No video frames were produced. Check your trim range and try again.');
+    const output = await engine.readFile('output.mp4');
+    if (!output.byteLength) throw finalError('The encoder produced an empty video. Check your trim range.');
+    ok = true;
+    return output;
+  } finally {
+    engine.off('progress', listener); engine.off('log', logger);
+    if (ok && ffmpeg === engine && ready) { await engine.deleteFile(inputName).catch(() => {}); await engine.deleteFile('output.mp4').catch(() => {}); }
+    else { dropEngine(engine); if (ffmpeg === engine) { ffmpeg = undefined; ready = false; } }
+  }
+}
+
 async function runBrowser(options, token) {
   const directory = webDirectory ? await webDirectory.getDirectoryHandle(`Video Resizer Output ${Date.now()}`, { create: true }) : undefined;
   for (const file of queue.filter(f => f.status !== 'done')) {
     if (cancelled || token !== epoch) break;
-    file.status = 'processing'; file.progress = 0; file.error = ''; updateRow(file); updateSummary();
+    file.status = 'processing'; file.progress = 0; file.error = ''; file.note = ''; updateRow(file); updateSummary();
     $('batch-status').textContent = `Processing ${file.name}`;
-    let engine, listener, logger;
-    const inputName = `input.${file.name.split('.').pop().toLowerCase()}`;
     try {
       // FFmpeg.wasm uses an in-memory filesystem. Bound individual inputs to avoid a predictable browser crash.
-      if (file.size > 1024 ** 3) throw new Error('Over the 1 GB browser limit. Use the desktop app for this video.');
-      engine = await getBrowserEngine(token);
-      notice('Processing locally. Large videos can take longer than their playback time.');
-      let log = '', duration = 0, sourceDuration = 0, maxFrames = 0;
-      const trimmed = options.trimStart > 0 || options.trimEnd !== undefined;
-      logger = ({ message }) => {
-        log = (log + '\n' + message).slice(-4000);
-        const match = message.match(/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/);
-        if (match) {
-          sourceDuration = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-          duration = Math.max(0, Math.min(sourceDuration, options.trimEnd ?? sourceDuration) - options.trimStart);
-        }
-        const frames = message.match(/frame=\s*(\d+)/);
-        if (frames) maxFrames = Math.max(maxFrames, Number(frames[1]));
-      };
-      listener = ({ progress, time }) => {
-        const value = duration > 0 && Number.isFinite(time) ? time / 1e6 / duration * 100 : trimmed ? 0 : progress * 100;
-        file.progress = Number.isFinite(value) ? Math.max(0, Math.min(99, value)) : 0;
-        scheduleProgress(file);
-      };
-      engine.on('progress', listener); engine.on('log', logger);
-      const data = new Uint8Array(await file.file.arrayBuffer());
-      if (cancelled || token !== epoch) throw new Error('Cancelled');
-      await engine.writeFile(inputName, data);
-      const result = await engine.exec(['-hide_banner', '-y', ...inputArgs(options), '-i', inputName, ...encodingArgs(options), 'output.mp4']);
-      if (options.trimStart > 0 && sourceDuration > 0 && options.trimStart >= sourceDuration) throw new Error('Trim start must be earlier than the end of this video.');
-      if (result !== 0) throw new Error(`Could not convert this video. ${log.split('\n').filter(Boolean).slice(-2).join(' ')}`);
-      if (maxFrames === 0 && /(?:frame=\s*0|Output file is empty|video:0kB)/.test(log)) throw new Error('No video frames were produced. Check your trim range and try again.');
-      const output = await engine.readFile('output.mp4');
-      if (!output.byteLength) throw new Error('The encoder produced an empty video. Check your trim range.');
+      if (file.size > 1024 ** 3) throw finalError('Over the 1 GB browser limit. Use the desktop app for this video.');
+      notice(`Processing on this device with ${preferSingle ? 1 : engineCores()} ${preferSingle || engineCores() === 1 ? 'core' : 'cores'}.`);
+      let output;
+      try { output = await convertInBrowser(file, options, token, preferSingle); }
+      catch (error) {
+        // The multi-core engine can fail where the single-core one succeeds; retry once.
+        if (error.final || preferSingle || !threaded() || cancelled || token !== epoch) throw error;
+        preferSingle = true; file.progress = 0; updateRow(file);
+        notice('Retrying this video with the single-core engine…');
+        output = await convertInBrowser(file, options, token, true);
+      }
       if (cancelled || token !== epoch) throw new Error('Cancelled');
       file.outputSize = output.byteLength;
       if (directory) {
@@ -296,7 +324,7 @@ async function runBrowser(options, token) {
         const name = segments.pop(); let target = directory;
         for (const segment of segments) target = await target.getDirectoryHandle(segment, { create: true });
         if (cancelled || token !== epoch) throw new Error('Cancelled');
-        const handle = await uniqueOutputHandle(target, `${name}.optimized.mp4`);
+        const handle = await uniqueOutputHandle(target, outputVideoName(name));
         const writable = await handle.createWritable();
         try { await writable.write(output); await writable.close(); }
         catch (error) { await writable.abort().catch(() => {}); throw error; }
@@ -309,15 +337,8 @@ async function runBrowser(options, token) {
       file.status = 'done'; file.progress = 100;
     } catch (error) {
       file.status = cancelled ? 'cancelled' : 'error';
-      file.error = cancelled ? '' : error.message || 'This browser ran out of memory. Try a smaller file or the desktop app.';
-      // Reset the worker after errors so a damaged WASM instance cannot poison later files.
-      if (engine) { dropEngine(engine); if (ffmpeg === engine) { ffmpeg = undefined; ready = false; } }
-    } finally {
-      if (engine && listener) engine.off('progress', listener);
-      if (engine && logger) engine.off('log', logger);
-      if (engine && ffmpeg === engine && ready) { await engine.deleteFile(inputName).catch(() => {}); await engine.deleteFile('output.mp4').catch(() => {}); }
-      updateRow(file); updateSummary();
-    }
+      file.error = cancelled ? '' : (error?.message || 'The browser could not convert this video. Try the desktop app.');
+    } finally { updateRow(file); updateSummary(); }
   }
   finish();
 }
@@ -353,11 +374,13 @@ $('video-download-all').onclick = async () => {
   packaging = true; setBusy(true); notice('Preparing your ZIP download…');
   try {
     const { downloadZip } = await import('../shared/download-zip.mjs');
-    const files = [];
+    const files = [], used = new Set();
     for (const file of completed) {
       const response = await fetch(file.url);
       if (!response.ok) throw new Error('Could not read a video result. Download videos individually.');
-      files.push({ name: `${file.name.replace(/[\\/]/g, '_')}.optimized.mp4`, blob: await response.blob() });
+      const name = uniqueVideoName(outputVideoName(file.name).split(/[\\/]/).pop(), taken => used.has(taken));
+      used.add(name.toLowerCase());
+      files.push({ name, blob: await response.blob() });
     }
     await downloadZip(files, 'Binary-Beat-videos.zip');
     notice('Your ZIP download is ready. Individual video downloads are still available.');

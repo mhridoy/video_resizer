@@ -1,5 +1,6 @@
 import { imageType } from '../shared/image-tools.mjs';
 import { encodeImage } from './image-tools.js';
+import { mapLimit } from '../shared/parallel.mjs';
 
 const $ = id => document.getElementById(id);
 const formatSize = value => !value ? '0 KB' : value < 1024 ** 2 ? `${Math.max(0.1, value / 1024).toFixed(1)} KB` : `${(value / 1024 ** 2).toFixed(2)} MB`;
@@ -73,7 +74,17 @@ function setBusy(value) {
   window.dispatchEvent(new CustomEvent('tool-busy', { detail: value }));
 }
 
-function addResult(data, filename, note = '', type = 'application/pdf') {
+// Two inputs called "scan.jpg" must not produce two downloads (or ZIP entries) with one name.
+function uniqueResultName(filename) {
+  const taken = new Set(results.map(item => item.name.toLowerCase()));
+  const dot = filename.lastIndexOf('.'), stem = dot > 0 ? filename.slice(0, dot) : filename, extension = dot > 0 ? filename.slice(dot) : '';
+  let candidate = filename;
+  for (let number = 2; taken.has(candidate.toLowerCase()); number++) candidate = `${stem} (${number})${extension}`;
+  return candidate;
+}
+
+function addResult(data, requestedName, note = '', type = 'application/pdf') {
+  const filename = uniqueResultName(requestedName);
   const blob = data instanceof Blob ? data : new Blob([data], { type });
   const url = URL.createObjectURL(blob);
   const record = { blob, name: filename, url, downloaded: false }; results.push(record);
@@ -100,7 +111,9 @@ export function activateTool(selected) {
   $('image-settings').hidden = !['image', 'image-compress', 'image-convert'].includes(tool);
   for (const id of ['image-width', 'image-height']) { const label = $(id)?.closest('label'); if (label) label.hidden = tool !== 'image'; }
   for (const [id, current] of [['split-settings', 'split'], ['compress-settings', 'compress'], ['rotate-settings', 'rotate'], ['images-pdf-settings', 'images-pdf']]) if ($(id)) $(id).hidden = tool !== current;
-  if (tool === 'image-compress') $('image-format').value = 'image/webp';
+  if (['image', 'image-compress'].includes(tool)) $('image-format').value = 'same';
+  else if (tool === 'image-convert' && $('image-format').value === 'same') $('image-format').value = 'image/jpeg';
+  $('image-format').querySelector('option[value=same]').hidden = tool === 'image-convert';
   $('tool-input').accept = isImageTool() ? '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp' : '.pdf,application/pdf';
   $('tool-input').multiple = tool !== 'split';
   announce(''); renderFiles(); updateQuality();
@@ -139,7 +152,7 @@ $('tool-clear').onclick = () => {
 };
 function updateQuality() {
   if ($('image-quality-value')) $('image-quality-value').textContent = `${$('image-quality').value}%`;
-  const png = $('image-format').value === 'image/png';
+  const png = $('image-format').value === 'image/png' || ($('image-format').value === 'same' && files.length > 0 && files.every(file => imageType(file) === 'image/png'));
   $('image-quality').disabled = busy || png;
   $('image-quality').setAttribute('aria-label', png ? 'Quality does not apply to PNG output' : 'Image quality');
 }
@@ -158,14 +171,18 @@ if ($('tool-download-all')) $('tool-download-all').onclick = async () => {
   finally { setBusy(false); }
 };
 
+// Encodes one image and describes the result; results are added afterwards, in list order.
 async function processImage(file) {
-  const output = await encodeImage(file, { mode: tool, width: Number($('image-width').value), height: Number($('image-height').value), type: $('image-format').value, quality: Number($('image-quality').value) / 100 });
+  const chosen = $('image-format').value;
+  // "Same as original" keeps a photo a photo: a JPG stays JPG instead of turning into WebP.
+  const type = chosen === 'same' ? imageType(file) : chosen;
+  const output = await encodeImage(file, { mode: tool, width: Number($('image-width').value), height: Number($('image-height').value), type, quality: Number($('image-quality').value) / 100 });
   const dimensions = `${output.width} × ${output.height}`;
-  if (tool === 'image-compress' && output.blob.size >= file.size) { addResult(file, file.name, `${dimensions} · Already compact — original kept`); return; }
+  if (tool === 'image-compress' && output.blob.size >= file.size) return [file, file.name, `${dimensions} · Already compact — original kept`];
   const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[output.blob.type];
   const suffix = tool === 'image' ? `${output.width}x${output.height}` : tool === 'image-compress' ? 'compressed' : 'converted';
   const saving = tool === 'image-compress' ? ` · ${Math.round((1 - output.blob.size / file.size) * 100)}% smaller` : '';
-  addResult(output.blob, `${file.name.replace(/\.[^.]+$/, '')}-${suffix}.${extension}`, dimensions + saving);
+  return [output.blob, `${file.name.replace(/\.[^.]+$/, '')}-${suffix}.${extension}`, dimensions + saving];
 }
 
 $('tool-run').onclick = async () => {
@@ -192,13 +209,25 @@ $('tool-run').onclick = async () => {
       });
       const output = await imagesToPDF(images, { pageSize: $('pdf-page-size')?.value || 'a4', onProgress: (index, count) => { announce(`Creating PDF page ${index + 1} of ${count}…`); updateProgress((index + 1) / count * 100); } });
       addResult(output, 'Binary-Beat-images.pdf', `${files.length} ${files.length === 1 ? 'page' : 'pages'}`);
+    } else if (isImageTool()) {
+      // Decoding and encoding run off the main thread, so a few images at once finish sooner.
+      let done = 0;
+      const outcomes = await mapLimit(files, Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1)), async file => {
+        try { return { result: await processImage(file) }; }
+        catch (error) { return { error: `${file.name}: ${error.message}` }; }
+        finally { done++; announce(`Processed ${done} of ${files.length}…`); updateProgress(done / files.length * 100); }
+      });
+      for (const outcome of outcomes) {
+        if (outcome.result) { addResult(...outcome.result); continue; }
+        failed++;
+        const message = document.createElement('p'); message.className = 'tool-error'; message.textContent = outcome.error; $('tool-results').append(message);
+      }
     } else {
       for (let index = 0; index < files.length; index++) {
         const file = files[index]; announce(`Processing ${index + 1} of ${files.length}: ${file.name}`);
         await new Promise(resolve => setTimeout(resolve, 0));
         try {
-          if (isImageTool()) await processImage(file);
-          else {
+          {
             const input = new Uint8Array(await file.arrayBuffer()), stem = file.name.replace(/\.pdf$/i, '');
             const library = await pdfTools();
             if (tool === 'split') {

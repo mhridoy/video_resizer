@@ -13,7 +13,7 @@ Web app: https://video-resizer-eta.vercel.app/
 3. Pick Balanced (default), Fastest, Smallest file, or Higher quality. Optionally set start/end seconds or remove audio under **Trim & audio**.
 4. Click **Optimize videos**.
 
-The desktop app saves to a new, timestamped folder inside Videos, or inside your selected output directory. Subfolders are preserved. Outputs include the source extension in their names, so `clip.mov` and `clip.mp4` cannot overwrite one another. Already generated `Video Resizer Output…` folders are excluded from scans.
+The desktop app saves to a new, timestamped folder inside Videos, or inside your selected output directory. Subfolders are preserved. Outputs keep the source name as MP4 (`clip.mov` → `clip.mp4`); a name already used becomes `clip (2).mp4` instead of overwriting. Already generated `Video Resizer Output…` folders are excluded from scans.
 
 The web app compresses files locally in your browser without uploading videos. Optional shipment Pro AI sends bounded photo/PDF previews to the server. Download individual results from the queue. Chrome and Edge also offer **Save automatically to folder**, which preserves the input hierarchy and avoids keeping every result in memory. Do not close the tab while processing or before saving downloads.
 
@@ -105,7 +105,7 @@ GitHub requires sign-in to download workflow artifacts, which are retained for 3
 - The queue processes one file at a time to avoid exhausting memory and to keep the computer responsive.
 - A minute count or percentage reduction cannot be guaranteed. Length, resolution, source codec, hardware, and settings determine the result. Already compressed files can become larger; the app reports actual input/output sizes.
 - Resolution is a longest-edge cap: 1080p = 1920, 720p = 1280, and 480p ≈ 853 pixels, rounded to even dimensions. Portrait clips remain portrait. Smaller square-pixel videos are not enlarged. Non-square pixels are normalized to square pixels while preserving display aspect ratio as closely as even dimensions permit.
-- Web uses a single-thread FFmpeg WASM engine. Its initial download is about 32 MB. Individual web inputs are limited to 1 GB, and lower limits can apply on memory-constrained devices. Large jobs belong in the desktop app.
+- Web uses the multi-threaded FFmpeg WASM engine (up to 4 cores, about 3× faster) on cross-origin-isolated pages and falls back to the single-thread engine automatically if a video fails. Its initial download is about 32 MB. Individual web inputs are limited to 1 GB, and lower limits can apply on memory-constrained devices. Large jobs belong in the desktop app.
 - Output keeps the first video stream and first audio stream, if present. Subtitles, attachments, extra audio tracks and other data streams are not copied. This is for everyday videos, not archival preservation. HDR-to-SDR tone mapping is not included; use SDR source videos for predictable color.
 - Cancellation preserves completed outputs and removes incomplete desktop outputs. Failed files are reported without stopping the rest of the batch. Click Optimize again to retry unfinished/failed files; completed files are skipped.
 

@@ -33,4 +33,17 @@ function encodingArgs(options, encoder = 'libx264') {
   return ['-map', '0:v:0', ...audioMap, '-vf', filter, ...codec, '-pix_fmt', 'yuv420p', ...audioCodec, ...trim, '-movflags', '+faststart', '-sn', '-dn'];
 }
 function isVideo(name) { return EXTENSIONS.has(name.split('.').pop().toLowerCase()); }
-export { inputArgs, encodingArgs, validateOptions, isVideo };
+// Output keeps the source name and folder, only with the .mp4 extension: "trip/clip.mov" -> "trip/clip.mp4".
+function outputVideoName(name) {
+  const slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+  const dot = name.lastIndexOf('.');
+  return `${dot > slash + 1 ? name.slice(0, dot) : name}.mp4`;
+}
+// Second and later uses of a name become "clip (2).mp4", "clip (3).mp4"… `taken` is checked case-insensitively.
+function uniqueVideoName(name, taken) {
+  const stem = name.replace(/\.mp4$/i, '');
+  let candidate = name;
+  for (let number = 2; taken(candidate.toLowerCase()); number++) candidate = `${stem} (${number}).mp4`;
+  return candidate;
+}
+export { inputArgs, encodingArgs, validateOptions, isVideo, outputVideoName, uniqueVideoName };

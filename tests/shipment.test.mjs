@@ -12,7 +12,7 @@ test('reads chat identifiers, weight tickets, and typed shipping documents', () 
   assert.equal(found.seals[0].id, 'ABC1234567');
   // Seals are stamped with the owner prefix split from the serial, and sit next to other text.
   for (const [text, id] of [['SEAL NO ML 0098812', 'ML0098812'], ['SEAL: ML-US 1234567', 'MLUS1234567'],
-    ['SEAL NO. ML0098812', 'ML0098812'], ['SEAL NO 0098812 GROSS 32450 KG', '0098812'], ['SEAL 445566', '445566']]) {
+    ['SEAL NO. ML0098812', 'ML0098812'], ['SEAL NO 0098812 GROSS 32450 KG', '0098812'], ['SEAL 445566', '445566'], ['SEAL NO ML0098812 O82', 'ML0098812']]) {
     assert.deepEqual(detectShipmentText(text).seals.map(value => value.id), [id], text);
   }
   for (const text of ['SEALED CARTONS 20', 'SEAL NO: AB', 'SEAL NO: ML']) {

@@ -42,6 +42,15 @@ function defaultContainer() {
 const sealOf = item => item.seal || safeIdentifier($('cp-seal').value);
 const trailerOf = item => item.trailer || safeIdentifier($('cp-trailer').value);
 const containerOf = item => item.container?.id || defaultContainer() || 'Unassigned';
+// The typed seal wins; otherwise the seal read most often in this container (a typed or
+// photographed seal photo counts double), never a mix of several.
+function containerSeal(list) {
+  const typed = safeIdentifier($('cp-seal').value);
+  if (typed) return typed;
+  const votes = new Map();
+  for (const item of list) if (item.seal) votes.set(item.seal, (votes.get(item.seal) || 0) + (item.manualSeal || item.category === 'seals' ? 2 : 1));
+  return [...votes].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || '';
+}
 
 export function activateContainerTool() {
   $('cp-hint').textContent = native ? 'Photos, videos, PDF, Office files, or a WhatsApp chat-export ZIP' : 'Photos, videos (up to 1 GB each), PDF, Office files, or a WhatsApp chat-export ZIP';
@@ -176,7 +185,7 @@ async function readLocalItems(list) {
         if (found.invoiceConflict) item.review = 'Multiple invoice numbers: verify the reference.';
         if (found.possibleSeal) item.review = 'Seal photo kept. Number is optional.';
         item.localRead = true;
-      } catch (error) { if (!cancelled) item.review = 'Could not read this file. Verify its category and numbers manually.'; }
+      } catch (error) { if (!cancelled) item.review = error?.timedOut ? 'Photo too busy to read quickly. Verify its category and numbers.' : 'Could not read this file. Verify its category and numbers manually.'; }
       finally {
         source?.close();
         if (reading) setStatus(`Reading files: ${++done} of ${pending.length}`);
@@ -464,10 +473,13 @@ function buildPacks(budget) {
   const usedNames = new Set();
   packs = [...groups].map(([container, list]) => {
     const files = [];
+    // Every file of one container carries the same seal, so the names sort together
+    // instead of switching between "…_SEAL-X_…" and no seal from one photo to the next.
+    const seal = containerSeal(list);
     for (const category of CATEGORIES) {
       const inCategory = list.filter(item => item.category === category.id);
       inCategory.forEach((item, index) => {
-        const path = uniqueOutputName(standardPath(container, category.id, index + 1, inCategory.length, item.outputExtension, item.path.replace(/\.[^./]+$/, `.${item.outputExtension}`), rename, sealOf(item), item.category === 'photos' ? item.stage : '', item.documentType, item.invoiceNumber, item.hasQrCode), usedNames);
+        const path = uniqueOutputName(standardPath(container, category.id, index + 1, inCategory.length, item.outputExtension, item.path.replace(/\.[^./]+$/, `.${item.outputExtension}`), rename, seal, item.category === 'photos' ? item.stage : '', item.documentType, item.invoiceNumber, item.hasQrCode), usedNames);
         item.sendName = path;
         files.push({ item, name: path, blob: item.output, size: item.output.size });
       });

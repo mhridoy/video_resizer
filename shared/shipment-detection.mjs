@@ -12,6 +12,8 @@ function labelledSeals(text) {
       const cleaned = safeIdentifier(word).replace(/-/g, '');
       const hasDigit = /\d/.test(cleaned);
       if (!cleaned || (!hasDigit && (/\d/.test(value) || cleaned.length > 4))) break;
+      // The serial ends the number: "ML0098812 O82" must not absorb the OCR noise after it.
+      if (hasDigit && /\d{4}/.test(value)) break;
       value += cleaned;
       if (value.length > 24) { value = ''; break; }
     }
