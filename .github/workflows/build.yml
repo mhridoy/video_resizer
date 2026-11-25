@@ -61,7 +61,7 @@ jobs:
     # gets the Intel FFmpeg installed before it is packaged.
     needs: prepare
     if: ${{ !cancelled() && needs.prepare.result != 'failure' }}
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 30
     # macOS runners can be unavailable on this account (they are cancelled before starting);
     # the Windows release must not wait for them. The Mac files are added when this job runs.
