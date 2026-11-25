@@ -127,7 +127,9 @@ export function allocateBudget(sizes, budget, weights = []) {
 }
 
 // A video needs far more bytes than a photo to stay watchable, so it draws a larger share.
-export const SHARE_WEIGHT = { video: 6, image: 1, pdf: 1, doc: 1, other: 1 };
+// Invoices and weight tickets must stay legible (and a PDF squeezed under its share is
+// turned into page pictures), so documents draw a larger share than a photo too.
+export const SHARE_WEIGHT = { video: 6, image: 1, pdf: 4, doc: 4, other: 1 };
 // Below this a photo stops being worth sending, so a very large set is split across emails.
 export const MIN_SHARE = 220 * 1024;
 export const filesPerEmail = budget => Math.max(1, Math.floor(budget / MIN_SHARE));

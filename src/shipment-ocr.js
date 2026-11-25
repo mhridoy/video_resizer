@@ -1,6 +1,6 @@
 import { hasShipmentQr } from './shipment-qr.js';
 import { createWorker } from 'tesseract.js';
-import { detectShipmentText } from '../shared/shipment-detection.mjs';
+import { detectShipmentText, sealsFromCloseUp } from '../shared/shipment-detection.mjs';
 import { sealRegions } from '../shared/photo-regions.mjs';
 import { readPhoto } from './photo-source.js';
 import { photoConcurrency } from '../shared/parallel.mjs';
@@ -56,8 +56,12 @@ export async function createShipmentScanner(size = photoConcurrency()) {
       try {
         check();
         let data;
-        try { ({ data } = await recognize(worker, source.textCanvas())); }
-        catch (error) { if (error.timedOut) worker = await replace(worker); throw error; }
+        const read = async canvas => {
+          try { return (await recognize(worker, canvas)).data; }
+          catch (error) { if (error.timedOut) worker = await replace(worker); throw error; }
+        };
+        data = await read(source.textCanvas());
+        check();
         check();
         // A QR code only decides between an ordinary and a VAT invoice, and looking for one
         // is the slowest step there is, so only invoices are searched.
@@ -67,14 +71,31 @@ export async function createShipmentScanner(size = photoConcurrency()) {
           check();
           if (hasQrCode) found = detectShipmentText(data.text, { hasQrCode });
         }
-        if (found.category) return { ...found, text: data.text };
-        // Keep a likely seal photo even when the engraved serial cannot be read.
-        // Do not spend time retrying the serial: the photo is the required evidence.
-        const { canvas, context } = source.viewAt(320);
-        try {
-          const regions = sealRegions(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
-          return { ...found, text: data.text, ...(regions.length ? { category: 'seals', possibleSeal: true } : {}) };
-        } finally { canvas.width = canvas.height = 1; }
+        if (found.category || found.containers.length) return { ...found, text: data.text };
+        // A seal photo: find the seal's coloured plastic, enlarge it and read its serial,
+        // which runs along the seal's body and is usually photographed sideways.
+        const { canvas: small, context } = source.viewAt(320);
+        const pixels = context.getImageData(0, 0, small.width, small.height).data;
+        // Cyan plastic is a seal on its own; yellow (bumpers, stripes) only once a serial is read.
+        const cyan = sealRegions(pixels, small.width, small.height, ['cyan']).length > 0;
+        const regions = sealRegions(pixels, small.width, small.height);
+        small.width = small.height = 1;
+        if (!regions.length) return { ...found, text: data.text };
+        // Tight crops read best; two sizes and three turns, stopping at the first serial.
+        let closeUp = '';
+        search: for (const region of regions.slice(0, 2)) {
+          for (const edge of [600, 900]) for (const turn of [0, 1, -1]) {
+            const crop = source.crop(region, { pad: 0.04, edge, turn });
+            try { closeUp += '\n' + (await read(crop)).text; } finally { crop.width = crop.height = 1; }
+            check();
+            if (sealsFromCloseUp(closeUp).length) break search;
+          }
+        }
+        const seals = sealsFromCloseUp(closeUp);
+        // Part of a serial ("8936") lets the import match this photo to a seal read elsewhere.
+        const sealDigits = [...new Set(closeUp.match(/\d{4,10}/g) || [])];
+        if (!seals.length && !cyan) return { ...found, text: `${data.text}\n${closeUp}`, sealDigits };
+        return { ...found, text: `${data.text}\n${closeUp}`, seals: [...found.seals, ...seals], category: 'seals', possibleSeal: !seals.length };
       } finally {
         if (worker) give(worker);
         if (source !== input) source.close();

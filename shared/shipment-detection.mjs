@@ -43,6 +43,23 @@ function labelledTrailers(text) {
   return found;
 }
 
+// Words printed on container doors and documents next to numbers; never a seal prefix.
+const NOT_SEAL = new Set(['MAX', 'GROSS', 'TARE', 'NET', 'KG', 'KGS', 'LB', 'LBS', 'CAP', 'CUM', 'CUFT', 'PAYLOAD', 'TEL', 'MOB', 'FAX', 'PO', 'BOX', 'INV', 'NO', 'DATE', 'TIME', 'VAT', 'CR']);
+/**
+ * Serials read off a close-up of a seal ("AKS 48936", "ML-0098812"). Only for text read from a
+ * cropped seal region, where a short letter prefix and a serial can mean nothing else.
+ */
+export function sealsFromCloseUp(input) {
+  const text = String(input || '').toUpperCase();
+  const found = new Map();
+  for (const match of text.matchAll(/(?:^|[^A-Z0-9])([A-Z]{2,5})[\s\-_.:]{0,2}(\d{5,10})(?![0-9])/g)) {
+    if (NOT_SEAL.has(match[1]) || parseContainer(match[1] + match[2])) continue;
+    const id = match[1] + match[2];
+    found.set(id, { id, explicit: false });
+  }
+  return [...found.values()];
+}
+
 // Exported chat and OCR text are data only. Nothing in them is executed.
 export function detectShipmentText(input, { hasQrCode = false } = {}) {
   const text = String(input || '').replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').toUpperCase();
@@ -55,6 +72,12 @@ export function detectShipmentText(input, { hasQrCode = false } = {}) {
     else containers.set(container.id, container);
   }
   for (const value of labelledTrailers(text)) if (!containers.has(value.replace(/-/g, ''))) trailers.set(value, { id: value });
+  // The category letter is always U, J, Z or R; OCR often reads a U as Y, V or O. Accept the
+  // correction only when the check digit then matches.
+  for (const match of text.matchAll(/\b([A-Z]{3})[YVO0][\s._-]*(\d{3})[\s._-]*(\d{3})[\s._-]*(\d)\b/g)) {
+    const candidate = parseContainer(`${match[1]}U${match[2]}${match[3]}${match[4]}`);
+    if (candidate?.valid && !containers.has(candidate.id)) containers.set(candidate.id, { ...candidate, corrected: true });
+  }
   // OCR sometimes splits a vertical stroke into an extra I. Only accept a unique
   // correction when the printed seven digits pass the ISO check digit.
   for (const match of text.matchAll(/\b([A-Z]{5})[\s|._-]*(\d{7})\b/g)) {
@@ -106,6 +129,11 @@ export function resolveShipmentGroup(records, transcript = '') {
     for (const value of record.evidence.containers) containers.set(value.id, value);
     record.evidence.seals.forEach(addSeal);
   }
+  // One photo read TLLU2949292, another TLLU2949297: when a single number passes the check
+  // digit, failing readings that differ from it in a character or two are the same box misread.
+  const near = (a, b) => a.length === b.length && [...a].filter((char, i) => char !== b[i]).length <= 2;
+  const checked = [...containers.values()].filter(value => value.valid);
+  if (checked.length === 1) for (const value of [...containers.values()]) if (!value.valid && near(value.id, checked[0].id)) containers.delete(value.id);
   const valid = [...containers.values()].filter(value => value.valid);
   const trustedSeals = [...seals.values()].filter(value => value.explicit || value.count >= 2);
   const container = containers.size === 1 && valid.length === 1 ? valid[0] : null;
@@ -116,10 +144,10 @@ export function resolveShipmentGroup(records, transcript = '') {
   return records.map(record => {
     const own = record.evidence;
     return { ...record,
-      container: own.containers.length === 1 ? own.containers[0] : container,
+      container: own.containers.length === 1 && !(container && !own.containers[0].valid && near(own.containers[0].id, container.id)) ? own.containers[0] : container,
       seal: own.seals.length === 1 ? own.seals[0].id : conflict ? '' : seal,
       trailer: own.trailers?.length === 1 ? own.trailers[0].id : trailer,
-      review: conflict ? 'Multiple container or seal numbers: check this file.' : own.containers.some(value => !value.valid) ? 'Container check digit does not match.' : own.containers.some(value => value.corrected) ? 'OCR spelling corrected using check digit: verify number.' : (own.seals.some(value => !value.explicit) || (seal && ![...seals.values()][0]?.explicit)) ? 'Seal read from photo: verify the serial.' : '',
+      review: conflict ? 'Multiple container or seal numbers: check this file.' : own.containers.some(value => !value.valid && !(container && near(value.id, container.id))) ? 'Container check digit does not match.' : own.containers.some(value => value.corrected) ? 'OCR spelling corrected using check digit: verify number.' : (own.seals.some(value => !value.explicit) || (seal && ![...seals.values()][0]?.explicit)) ? 'Seal read from photo: verify the serial.' : '',
     };
   });
 }

@@ -179,6 +179,7 @@ async function readLocalItems(list) {
           trailers: [...new Map([...(item.evidence.trailers || []), ...(found.trailers || [])].map(value => [value.id, value])).values()],
         };
         if (found.category) item.category = found.category;
+        item.sealDigits = found.sealDigits || [];
         item.fields = extractShipmentFields(found.text);
         if (found.documentType) item.documentType = found.documentType;
         item.invoiceNumber = found.invoiceNumber || item.invoiceNumber || ''; item.hasQrCode = found.hasQrCode === true;
@@ -238,6 +239,11 @@ function resolveSources() {
     item.trailer = value.trailer;
     item.review = value.review || item.review;
   });
+  // A second seal photo whose serial was only partly legible ("8936" of AKS48936).
+  for (const item of items) {
+    const serial = (item.seal || '').replace(/\D/g, '');
+    if (item.category === 'photos' && serial.length >= 4 && item.sealDigits?.some(digits => serial.includes(digits) || digits.includes(serial))) item.category = 'seals';
+  }
 }
 function sortItems() {
   const order = Object.fromEntries(CATEGORIES.map((category, index) => [category.id, index]));
@@ -762,7 +768,8 @@ function renderEmailText(byContainer) {
     const text = shipmentSummary({
       container: id === 'Unassigned' ? '' : id,
       weightMt: weightFrom?.fields.weightMt, weightBasis: weightFrom?.fields.weightBasis,
-      seal: group.map(sealOf).find(Boolean), po: field('po'), forwarder: field('forwarder'),
+      seal: containerSeal(group), po: field('po'), forwarder: field('forwarder'),
+      material: field('material'), sequence: field('sequence'),
       trailer: group.map(trailerOf).find(Boolean),
     });
     if (!text.subject) continue;

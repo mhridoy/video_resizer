@@ -1,10 +1,12 @@
-// Small saturated cyan regions are common on bolt seals. Restrict the size and
-// shape so a blue container door does not become a seal crop.
-export function sealRegions(data, width, height) {
+// Bolt seals are small, saturated cyan or yellow plastic. Restrict the size and shape so a
+// blue container door or a yellow bumper does not become a seal crop.
+export function sealRegions(data, width, height, colors = ['cyan', 'yellow']) {
   const mask = new Uint8Array(width * height), visited = new Uint8Array(mask.length), regions = [];
   for (let i = 0; i < mask.length; i++) {
     const [r, g, b] = data.subarray(i * 4, i * 4 + 3);
-    mask[i] = b > 145 && g > 105 && g - r > 70 && b > g * .95 ? 1 : 0;
+    const cyan = b > 145 && g > 105 && g - r > 70 && b > g * .95;
+    const yellow = r > 170 && g > 140 && b < 120 && r - b > 90 && Math.abs(r - g) < 70;
+    mask[i] = (cyan && colors.includes('cyan')) || (yellow && colors.includes('yellow')) ? 1 : 0;
   }
   for (let i = 0; i < mask.length; i++) {
     if (!mask[i] || visited[i]) continue;
@@ -18,7 +20,7 @@ export function sealRegions(data, width, height) {
       }
     }
     const w = maxX - minX + 1, h = maxY - minY + 1;
-    if (queue.length > mask.length * .015 && w * h < mask.length * .18 && Math.max(w / h, h / w) > 1.25) regions.push({ x: minX / width, y: minY / height, w: w / width, h: h / height, area: queue.length });
+    if (queue.length > mask.length * .015 && w * h < mask.length * .18 && Math.max(w / h, h / w) > (colors.includes('yellow') ? 1 : 1.25)) regions.push({ x: minX / width, y: minY / height, w: w / width, h: h / height, area: queue.length });
   }
   return regions.sort((a, b) => b.area - a.area).slice(0, 3);
 }

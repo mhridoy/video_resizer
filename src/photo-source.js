@@ -3,9 +3,12 @@
 // duplicate fingerprint. Decode once into one working canvas and derive every view from it.
 const WORK_EDGE = 2600; // a QR printed on a scanned invoice still resolves at this size
 const TEXT_EDGE = 1800; // container numbers and ticket text read fine here, and OCR is far faster
+// WhatsApp often sends 450×600 copies. Their letters are a few pixels tall, which the OCR
+// engine misses, so small photos are enlarged for reading (never for sending).
+const MIN_TEXT_EDGE = 1500, MAX_ENLARGE = 3;
 
-function scaled(source, edge) {
-  const ratio = Math.min(1, edge / Math.max(source.width, source.height));
+function scaled(source, edge, enlarge = 1) {
+  const ratio = Math.min(enlarge, edge / Math.max(source.width, source.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(source.width * ratio));
   canvas.height = Math.max(1, Math.round(source.height * ratio));
@@ -30,7 +33,25 @@ export async function readPhoto(file) {
       canvas: work.canvas,
       imageData: () => work.context.getImageData(0, 0, work.canvas.width, work.canvas.height),
       // OCR gets its own smaller copy: one cheap redraw, no second decode of the original.
-      textCanvas: () => (text ||= scaled(work.canvas, TEXT_EDGE).canvas),
+      textCanvas: () => (text ||= scaled(work.canvas, Math.max(TEXT_EDGE, Math.min(MIN_TEXT_EDGE, Math.max(work.canvas.width, work.canvas.height) * MAX_ENLARGE)), MAX_ENLARGE).canvas),
+      // A region given as fractions of the photo, padded, enlarged to `edge` and turned a
+      // quarter clockwise (1) or anticlockwise (-1): seal serials run along the seal's body.
+      crop({ x, y, w, h }, { pad = 0.3, edge = 900, turn = 0 } = {}) {
+        const W = work.canvas.width, H = work.canvas.height;
+        const left = Math.max(0, (x - w * pad) * W), top = Math.max(0, (y - h * pad) * H);
+        const right = Math.min(W, (x + w * (1 + pad)) * W), bottom = Math.min(H, (y + h * (1 + pad)) * H);
+        const sw = Math.max(1, right - left), sh = Math.max(1, bottom - top);
+        const ratio = Math.min(6, edge / Math.max(sw, sh));
+        const dw = Math.round(sw * ratio), dh = Math.round(sh * ratio);
+        const canvas = document.createElement('canvas');
+        canvas.width = turn ? dh : dw; canvas.height = turn ? dw : dh;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+        context.imageSmoothingEnabled = true; context.imageSmoothingQuality = 'high';
+        context.translate(canvas.width / 2, canvas.height / 2); context.rotate(turn * Math.PI / 2);
+        context.drawImage(work.canvas, left, top, sw, sh, -dw / 2, -dh / 2, dw, dh);
+        return canvas;
+      },
       viewAt(edge) { return scaled(work.canvas, edge); },
       // An exact grid, aspect ignored: the duplicate fingerprint compares fixed cells.
       stretchTo(width, height) {
