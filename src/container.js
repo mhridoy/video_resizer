@@ -1,5 +1,5 @@
 import { safeInvoiceNumber } from '../shared/invoice-documents.mjs';
-import { fileKind, safeRelativePath, extensionOf } from '../shared/fit-size.mjs';
+import { fileKind, safeRelativePath, extensionOf, replaceExtension } from '../shared/fit-size.mjs';
 import { CATEGORIES, parseContainer, detectContainer, categorize, standardPath, importableFromZip, allocateBudget, SHARE_WEIGHT, isChatTranscript, safeIdentifier, uniqueOutputName, SHIPPING_DOCUMENTS } from '../shared/container.mjs';
 import { shrinkFile, cancelShrink } from './shrink.js';
 import { icon } from './icons.js';
@@ -167,6 +167,9 @@ async function markDuplicates(added) {
   if (count) importNotes.push(`${count} duplicate ${count === 1 ? 'file was' : 'files were'} left out (identical copies).`);
 }
 
+const SCANNED = ['weight', 'invoices', 'vat', 'packing', 'shipping', 'documents'];
+const scannable = item => item.kind === 'image' && SCANNED.includes(item.category);
+
 async function readLocalItems(list) {
   const reading = $('cp-detect').checked;
   // Fingerprints and previews only serve photo selection and the vision model; without
@@ -285,6 +288,7 @@ function saveBlob(blob, filename) {
 function resultText(item) {
   if (item.status === 'error') return item.error;
   if (item.status === 'processing') return `${Math.round(item.progress)}%`;
+  if (item.output && item.appliedScan && item.scanned) return `${formatSize(item.output.size)} · PDF scan`;
   if (item.output) return ['kept', 'replaced'].includes(item.status) ? formatSize(item.output.size) : `${formatSize(item.output.size)} · −${Math.max(0, Math.round((1 - item.output.size / item.file.size) * 100))}%`;
   return '—';
 }
@@ -401,7 +405,7 @@ function render() {
 function setBusy(value) {
   busy = value;
   $('container-panel').setAttribute('aria-busy', String(value));
-  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-forwarder', 'cp-rename', 'cp-mute', 'cp-detect', 'cp-trailer', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-ai-engine', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
+  for (const id of ['cp-pick-folder', 'cp-pick-files', 'cp-limit', 'cp-headroom', 'cp-container', 'cp-seal', 'cp-reference', 'cp-forwarder', 'cp-rename', 'cp-scan', 'cp-mute', 'cp-detect', 'cp-trailer', 'cp-ai', 'cp-auto', 'cp-ai-access', 'cp-ai-engine', 'cp-local-mode', 'cp-output-mode', 'cp-pick-output']) $(id).disabled = value || (folderReplaced && !['cp-pick-folder', 'cp-pick-files'].includes(id));
   document.querySelectorAll('[data-cp-limit], #cp-results button').forEach(button => { button.disabled = value; });
   $('cp-start').hidden = value; $('cp-cancel').hidden = !value; $('cp-progress-wrap').hidden = !value;
   items.forEach(rowFor); render();
@@ -451,7 +455,8 @@ async function prepareFiles(automatic = false) {
   if (budget <= reserve) { setStatus('Too many files for this email limit.'); return; }
   const targets = allocateBudget(included.map(item => item.file.size), budget - reserve, included.map(item => SHARE_WEIGHT[item.kind] || 1));
   included.forEach((item, index) => { item.plan = targets[index]; });
-  const queue = items.filter(item => item.included !== false && (!item.output || item.appliedTarget !== item.plan || item.mute !== mute));
+  const scan = $('cp-scan').checked;
+  const queue = items.filter(item => item.included !== false && (!item.output || item.appliedTarget !== item.plan || item.mute !== mute || item.appliedScan !== scan));
   queue.forEach(item => Object.assign(item, { status: 'queued', progress: 0, output: undefined, sendName: '', error: '', note: '' }));
   clearPacks(); setBusy(true);
   let last = 0;
@@ -468,9 +473,23 @@ async function prepareFiles(automatic = false) {
     };
     await new Promise(resolve => setTimeout(resolve, 0));
     try {
-      const result = await shrinkFile(item, item.plan, job);
+      // A phone photo of a weight ticket or invoice becomes a clean, straightened PDF scan.
+      let source = item;
+      if (scan && scannable(item)) {
+        if (!item.scanned) {
+          setStatus(`Scanning ${item.path.split('/').pop()} like a document scanner…`);
+          const { scanToPdf } = await import('./doc-scan.js');
+          const { pdf, found } = await scanToPdf([item.file]);
+          job.check();
+          item.scanned = new File([pdf], replaceExtension(item.file.name, 'pdf'), { type: 'application/pdf' });
+          item.scanFound = found;
+        }
+        source = { ...item, file: item.scanned, kind: 'pdf', path: replaceExtension(item.path, 'pdf') };
+      }
+      const result = await shrinkFile(source, item.plan, job);
       if (result.blob.size > item.plan) throw Error('Still above its share of the email.');
-      Object.assign(item, { output: result.blob, outputExtension: extensionOf(result.path) || extensionOf(item.path), note: result.note, appliedTarget: item.plan, mute, status: result.kept ? 'kept' : 'done' });
+      const scanNote = source !== item ? `Scanned to PDF${item.scanFound ? ' · page straightened' : ''}` : '';
+      Object.assign(item, { output: result.blob, outputExtension: extensionOf(result.path) || extensionOf(item.path), note: [scanNote, result.kept ? '' : result.note].filter(Boolean).join(' · ') || result.note, appliedTarget: item.plan, appliedScan: scan, mute, status: result.kept && source === item ? 'kept' : 'done' });
     } catch (error) {
       item.status = cancelled ? 'cancelled' : 'error';
       item.error = cancelled ? '' : error.message || 'Out of memory. Use the desktop app for very large files.';
@@ -754,6 +773,7 @@ $('cp-clear').onclick = () => {
 };
 $('cp-limit').addEventListener('input', () => { syncPresets(); clearPacks(); });
 $('cp-headroom').addEventListener('change', clearPacks);
+$('cp-scan').addEventListener('change', clearPacks);
 $('cp-ai').addEventListener('change', () => { analysisProblem = ''; clearPacks(); setStatus($('cp-ai').checked ? 'Automatic detection enabled with the selected engine.' : 'Local mode: loading percentages require manual selection.'); });
 // What an email for a loaded container is expected to carry. Missing items are warned
 // about, never blocked: the files that are there are still prepared and sent.
@@ -774,11 +794,23 @@ function renderChecklist() {
     if (!group.some(item => item.category === 'weight')) notes.push(`${name}No weight ticket. Add the weight ticket before sending.`);
     // The invoice bills the weight the ticket measured; a difference is a typing slip in one of them.
     const billed = group.find(item => ['invoices', 'vat'].includes(item.category) && item.fields?.weightMt)?.fields.weightMt;
-    const ticket = group.find(item => item.category === 'weight' && item.fields?.weightMt)?.fields;
+    // A truck head's own weighing (a few hundred kg) is added by hand to the load's ticket;
+    // it is never the load's weight itself.
+    const ticket = group.find(item => item.category === 'weight' && item.fields?.weightMt && !item.fields.headTicket)?.fields;
+    const head = group.find(item => item.category === 'weight' && item.fields?.headTicket)?.fields;
     const weighed = ticket?.weightMt;
     if (billed && weighed && Math.abs(billed - weighed) >= 0.0005) notes.push(ticket.weightHandwritten
       ? `${name}Invoice says ${billed.toFixed(3)} MT; the handwritten figure on the weight ticket reads ${weighed.toFixed(3)} MT (handwriting may be misread). Check the ticket.`
       : `${name}Invoice says ${billed.toFixed(3)} MT, weight ticket ${weighed.toFixed(3)} MT. Check which is right before sending.`);
+    else if (!billed && ticket?.weightCheck) {
+      const read = ticket.ticket || {}, printed = (read.net / 1000).toFixed(3);
+      notes.push(read.handwrittenUnread
+        ? `${name}Weight ticket: something is written by hand under the net weight but could not be read. Using the printed net ${printed} MT — check the ticket.`
+        : read.handwritten
+          ? `${name}Weight ticket: the handwritten total reads ${weighed.toFixed(3)} MT (printed net ${printed} MT). Check the ticket.`
+          : `${name}Weight ticket: the printed weighings did not add up when read. Using ${weighed.toFixed(3)} MT — check the ticket.`);
+    }
+    if (head && ticket && !ticket.ticket?.adjustment) notes.push(`${name}There is a truck-head weighing of ${Math.round(head.weightMt * 1000)} kg; the load's ticket shows no handwritten addition for it. Check the total.`);
   }
   list.replaceChildren(...notes.map(note => {
     if (typeof note === 'string') return el('li', '', note);
@@ -811,7 +843,7 @@ function renderEmailText(byContainer) {
       const from = list => list.map(item => item.fields?.[name]).find(Boolean);
       return from(group.filter(item => DOCUMENTS.includes(item.category))) || from(group.filter(item => item.category === 'weight')) || from(group);
     };
-    const weightFrom = [...group.filter(item => DOCUMENTS.includes(item.category)), ...group.filter(item => item.category === 'weight')].find(item => item.fields?.weightMt);
+    const weightFrom = [...group.filter(item => DOCUMENTS.includes(item.category)), ...group.filter(item => item.category === 'weight' && !item.fields?.headTicket)].find(item => item.fields?.weightMt);
     const po = field('po');
     const forwarder = $('cp-forwarder').value.trim() || rememberedForwarder(po) || field('forwarder');
     const text = shipmentSummary({

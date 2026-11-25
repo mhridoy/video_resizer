@@ -1,6 +1,6 @@
 # Binary Beat — Free File Tools
 
-A searchable dashboard with **13 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows and the web**. Filter by file type, choose a tool, and process files locally.
+A searchable dashboard with **14 free tools**, including a Container Load Pack for shipment photos, videos, invoices and weight tickets, on **Windows, Mac and the web**. Filter by file type, choose a tool, and process files locally.
 
 Batch resize and compress videos, or prepare shipment evidence. The video tools preserve originals; Container Load Pack saves into a chosen output folder by default, with an explicit option to replace imported originals.
 
@@ -136,6 +136,21 @@ Import this repository into Vercel. The included `vercel.json` builds the Vite w
 ### Local installer fallback
 
 If hosted Actions cannot run, prepare `release/win-unpacked` with electron-builder on a build machine, install NSIS 3, and run `node scripts/build-local-installer.mjs`. Set `NSIS_BINARY` and `NSISDIR` if NSIS is not installed globally. This produces an unsigned per-user Setup EXE with Start Menu shortcuts and an uninstaller; it removes only packaged files and leaves user-created videos intact.
+
+## Weight ticket reading
+
+The weight ticket gets a second, closer reading: it is straightened and cleaned like a scan, and its right-hand column (vehicle number, 1st / 2nd / net weight and the handwritten lines under them) is read again on its own.
+
+- **The printed figures must add up.** Net = 2nd − 1st (less a printed deduction). A misread digit is outvoted by the readings that agree, so the printed net is reliable.
+- **Handwritten totals are cross-checked.** "(−) 24 kg = 22966" (bags deducted) or "(+) 200 = 24660" (a truck head added) is taken as the load's weight when the total and the amount beside it agree with the printed net. When the writing can't be confirmed, the printed net is kept and the checklist asks you to check the ticket. It doesn't guess.
+- **Truck-head tickets** (a few hundred kg, the truck head weighed on its own) are never used as the load's weight.
+- **Container number** on the "VECHILE NO." line is read from a close crop of that line; one character hidden by the box's border is recovered from the check digit.
+
+Measured on 54 real tickets (49 used for tuning, 5 held back): the printed net was read correctly on all 54 and the final weight on 48. The other 6 were flagged for a check, so no wrong weight went through without a warning.
+
+## Scan document (phone photo → PDF scan)
+
+Photos of weight tickets, invoices or any sheet of paper become clean scans, like a scanner app: the sheet's four corners are found and the page is straightened, uneven light and colour casts are removed so the paper is white and the ink dark, and each photo becomes a one-page A4 PDF. In Container Load Pack, **Scan document photos** (on by default) does this to weight-ticket and invoice photos before they are packed. Everything runs on the device.
 
 ## Image and PDF tools
 

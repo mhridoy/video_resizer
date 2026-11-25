@@ -3,6 +3,9 @@ import { createWorker } from 'tesseract.js';
 import { detectShipmentText, sealsFromCloseUp, confirmedSeal } from '../shared/shipment-detection.mjs';
 import { sealRegions } from '../shared/photo-regions.mjs';
 import { readPhoto } from './photo-source.js';
+import { scanDocument } from '../shared/document-scan.mjs';
+import { ticketContainers } from '../shared/weight-ticket.mjs';
+import { parseContainer } from '../shared/container.mjs';
 import { photoConcurrency } from '../shared/parallel.mjs';
 
 async function startWorker() {
@@ -22,6 +25,44 @@ async function startWorker() {
 // for minutes without finding anything, so a photo gets this long before it is given up on
 // (it stays in the pack, marked for review) and its engine is replaced by a fresh one.
 const PHOTO_TIME_LIMIT = 15_000;
+export const TICKET_PASS = '--- TICKET COLUMN ---';
+
+// The ticket straightened and cleaned like a scan, then its right-hand column enlarged.
+export function ticketColumn(source) {
+  const full = source.imageData();
+  const { canvas: smallCanvas, context } = source.viewAt(400);
+  const small = context.getImageData(0, 0, smallCanvas.width, smallCanvas.height);
+  smallCanvas.width = smallCanvas.height = 1;
+  const { image } = scanDocument(full, small, { maxEdge: 2400 });
+  const sheet = document.createElement('canvas');
+  sheet.width = image.width; sheet.height = image.height;
+  sheet.getContext('2d').putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
+  const left = Math.round(sheet.width * 0.42), top = Math.round(sheet.height * 0.1);
+  const sw = sheet.width - left, sh = sheet.height - top;
+  const ratio = Math.min(2.5, 2000 / Math.max(sw, sh));
+  const column = document.createElement('canvas');
+  column.width = Math.round(sw * ratio); column.height = Math.round(sh * ratio);
+  const ctx = column.getContext('2d');
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(sheet, left, top, sw, sh, 0, 0, column.width, column.height);
+  sheet.width = sheet.height = 1;
+  return column;
+}
+
+// The line under a "VECHILE NO." label, where the container number is printed. The box's
+// own border runs through those digits; a strip of just that line reads far better.
+function vehicleStrips(column, words) {
+  const labels = words.filter(word => /VECH|EHIC|CHIL|HILE/i.test(word.text)).slice(0, 3);
+  return labels.map(({ bbox }) => {
+    const height = bbox.y1 - bbox.y0, top = bbox.y1 + height * 0.2, tall = height * 3.2;
+    const strip = document.createElement('canvas');
+    strip.width = column.width * 2; strip.height = Math.max(1, Math.round(tall * 2));
+    const context = strip.getContext('2d');
+    context.fillStyle = '#fff'; context.fillRect(0, 0, strip.width, strip.height);
+    context.drawImage(column, 0, top, column.width, tall, 0, 0, strip.width, strip.height);
+    return strip;
+  });
+}
 const timedOut = () => Object.assign(Error('Reading this photo took too long.'), { timedOut: true });
 
 export async function createShipmentScanner(size = photoConcurrency()) {
@@ -31,10 +72,10 @@ export async function createShipmentScanner(size = photoConcurrency()) {
   let closed = false;
   const take = () => idle.length ? Promise.resolve(idle.pop()) : new Promise(resolve => waiting.push(resolve));
   const give = worker => { const next = waiting.shift(); if (next) next(worker); else idle.push(worker); };
-  const recognize = async (worker, canvas) => {
+  const recognize = async (worker, canvas, output) => {
     let timer;
     try {
-      return await Promise.race([worker.recognize(canvas), new Promise((_, reject) => { timer = setTimeout(() => reject(timedOut()), PHOTO_TIME_LIMIT); })]);
+      return await Promise.race([worker.recognize(canvas, {}, output), new Promise((_, reject) => { timer = setTimeout(() => reject(timedOut()), PHOTO_TIME_LIMIT); })]);
     } finally { clearTimeout(timer); }
   };
   // Terminating is the only way to stop a recognition in progress.
@@ -56,8 +97,8 @@ export async function createShipmentScanner(size = photoConcurrency()) {
       try {
         check();
         let data;
-        const read = async canvas => {
-          try { return (await recognize(worker, canvas)).data; }
+        const read = async (canvas, output) => {
+          try { return (await recognize(worker, canvas, output)).data; }
           catch (error) { if (error.timedOut) worker = await replace(worker); throw error; }
         };
         data = await read(source.textCanvas());
@@ -70,6 +111,40 @@ export async function createShipmentScanner(size = photoConcurrency()) {
           const hasQrCode = await hasShipmentQr(source);
           check();
           if (hasQrCode) found = detectShipmentText(data.text, { hasQrCode });
+        }
+        // A weight ticket gets a second, closer reading: straightened and cleaned like a scan,
+        // then only its right-hand column (vehicle, weighings, net and the handwritten total),
+        // read once as a block and once as sparse text. Each misses different things.
+        if (found.category === 'weight') {
+          let ticketText = '';
+          const column = ticketColumn(source);
+          const pass = async (canvas, mode, output) => {
+            await worker.setParameters({ tessedit_pageseg_mode: mode });
+            try { return await read(canvas, output); }
+            catch (error) { if (!error.timedOut) throw error; return null; }
+            finally { if (worker) await worker.setParameters({ tessedit_pageseg_mode: '11' }); check(); }
+          };
+          try {
+            const block = await pass(column, '6');
+            const sparse = await pass(column, '11', { text: true, blocks: true });
+            ticketText = [block, sparse].filter(Boolean).map(value => `\n${TICKET_PASS}\n${value.text}`).join('');
+            const words = (sparse?.blocks || []).flatMap(b => b.paragraphs.flatMap(p => p.lines.flatMap(l => l.words)));
+            for (const strip of vehicleStrips(column, words)) {
+              try { const line = await pass(strip, '7'); if (line) ticketText += `\n${line.text}`; }
+              finally { strip.width = strip.height = 1; }
+            }
+          } finally { column.width = column.height = 1; }
+          const text = `${data.text}${ticketText}`;
+          // From the close readings only numbers read whole, or with one character recovered
+          // by the check digit: the door rules that rebuild a lost check digit do not apply
+          // to a printed line, where a missing digit is just as likely in the middle.
+          const containers = new Map(found.containers.map(value => [value.id, value]));
+          for (const match of ticketText.toUpperCase().matchAll(/(?<![A-Z])([A-Z]{3}[UJ])[\s._-]*(\d{6})[\s._-]*(\d)(?!\d)/g)) {
+            const value = parseContainer(match[1] + match[2] + match[3]);
+            if (value?.valid && !containers.has(value.id)) containers.set(value.id, value);
+          }
+          for (const value of ticketContainers(ticketText)) if (!containers.has(value.id)) containers.set(value.id, value);
+          return { ...found, containers: [...containers.values()], text };
         }
         if (found.category || found.containers.length) return { ...found, text: data.text };
         // A seal photo: find the seal's coloured plastic, enlarge it and read its serial,

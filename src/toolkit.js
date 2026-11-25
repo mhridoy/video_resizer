@@ -12,6 +12,7 @@ const tools = {
   split: { title: 'Split PDF', action: 'Split PDF', help: 'Extract the pages you need, or save every page as a separate PDF. Forms, bookmarks and digital signatures may not carry over.' },
   compress: { title: 'Compress PDF', action: 'Compress PDFs', help: 'Structural compression keeps page content unchanged. Choose image mode for scanned documents. Already compact files may stay the same size. Use unsigned PDFs.' },
   rotate: { title: 'Rotate PDF', action: 'Rotate PDFs', help: 'Turn PDF pages clockwise by 90°, 180° or 270°. Page content remains intact. Use unsigned PDFs; any existing digital signatures will be invalidated.' },
+  'image-scan': { title: 'Scan document', action: 'Scan to PDF', help: 'Photos of weight tickets, invoices or any paper become clean scans: the sheet is found, straightened and whitened, and each photo becomes a one-page PDF. Everything runs on this device.' },
   'images-pdf': { title: 'Images to PDF', action: 'Create PDF', help: 'Turn JPG, PNG and WebP images into one PDF, in the order below. Reorder your images, then choose A4 pages or the original image dimensions.' },
 };
 let files = [], results = [], busy = false, tool = 'image';
@@ -195,6 +196,20 @@ $('tool-run').onclick = async () => {
       announce('Merging your PDFs…');
       const { mergePDF } = await pdfTools();
       addResult(await mergePDF(await Promise.all(files.map(async file => new Uint8Array(await file.arrayBuffer())))), 'Binary-Beat-merged.pdf', `${files.length} PDFs combined`);
+    } else if (tool === 'image-scan') {
+      const { scanToPdf } = await import('./doc-scan.js');
+      for (const [index, file] of files.entries()) {
+        announce(`Scanning ${index + 1} of ${files.length}: ${file.name}`);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        try {
+          const { pdf, found } = await scanToPdf([file]);
+          addResult(pdf, `${file.name.replace(/\.[^.]+$/, '')}-scan.pdf`, found ? 'Sheet found and straightened' : 'Whole photo cleaned (no sheet edge found)');
+        } catch (error) {
+          failed++;
+          const message = document.createElement('p'); message.className = 'tool-error'; message.textContent = `${file.name}: ${error.message}`; $('tool-results').append(message);
+        }
+        updateProgress((index + 1) / files.length * 100);
+      }
     } else if (tool === 'images-pdf') {
       const { imagesToPDF } = await pdfTools();
       const images = files.map((file, i) => async () => {
